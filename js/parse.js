@@ -291,8 +291,73 @@
     return meta;
   }
 
+  const MARKER_RE = /^\s*(?:[•·▪‣◦●○■□►▸➢✓\uf0b7\uf0a7]|[-–—*](?=\s)|\(?(?:\d{1,2}|[a-zA-Z]|[ivxIVX]{1,4})[.)](?=\s))\s*/;
+
+  function hasMarker(text) {
+    return MARKER_RE.test(String(text));
+  }
+
   function stripBullet(text) {
-    return text.replace(/^[•·▪‣]\s+/, '').replace(/^[-–—]\s+/, '').trim();
+    return String(text).replace(MARKER_RE, '').replace(/^_+|_+$/g, '').trim();
+  }
+
+  function lineRight(line) {
+    if (!line || !line.items || !line.items.length) return null;
+    return Math.max.apply(null, line.items.map(function (it) { return it.x + (it.w || 0); }));
+  }
+
+  /* Sentence case + terminal full stop for list items. */
+  function tidyItem(text) {
+    let t = cleanJoin(String(text).replace(/^_+|_+$/g, ''));
+    if (!t) return t;
+    t = t.charAt(0).toUpperCase() + t.slice(1);
+    if (!/[.!?:;)]$/.test(t)) t += '.';
+    else if (/[;,]$/.test(t)) t = t.slice(0, -1) + '.';
+    return t;
+  }
+
+  const MAX_WORDS = 40;
+  const CLAUSE_CUES = /\s(?=(?:two|three|four|five|six|one|biological|removal|treatment|disinfection|flow and|re-use|reuse|safe|dust|water quality|grinder|the treated|all|it is|this|these)\b)/gi;
+
+  function wordCount(t) { return String(t).trim().split(/\s+/).filter(Boolean).length; }
+
+  /* Split an over-long bullet on sensible clause boundaries, nearest to the middle. */
+  function splitLong(text) {
+    const t = cleanJoin(text);
+    if (wordCount(t) <= MAX_WORDS) return [t];
+    const words = t.split(' ');
+    const mid = t.length / 2;
+    const tiers = [/[;.](?=\s)/g, /,(?=\s)/g, CLAUSE_CUES, /\s(?=(?:and|which|where|while|whereafter|from where)\s)/gi];
+    for (let k = 0; k < tiers.length; k++) {
+      const re = new RegExp(tiers[k].source, tiers[k].flags);
+      let best = -1, dist = Infinity, m;
+      while ((m = re.exec(t))) {
+        const at = m.index + (/[;.,]/.test(m[0]) ? 1 : 0);
+        const a = t.slice(0, at), b = t.slice(at);
+        if (wordCount(a) < 4 || wordCount(b) < 4) continue;
+        const d = Math.abs(at - mid);
+        if (d < dist) { dist = d; best = at; }
+        if (m[0] === '') re.lastIndex++;
+      }
+      if (best > 0) {
+        return splitLong(t.slice(0, best).replace(/[;,]$/, '')).concat(splitLong(t.slice(best)));
+      }
+    }
+    const half = Math.ceil(words.length / 2);
+    return [words.slice(0, half).join(' '), words.slice(half).join(' ')];
+  }
+
+  function finishItems(list) {
+    const out = [];
+    list.forEach(function (item) {
+      const kids = [];
+      item.children.forEach(function (c) { splitLong(c).forEach(function (x) { kids.push(tidyItem(x)); }); });
+      const parts = splitLong(item.text).map(tidyItem);
+      parts.forEach(function (text, i) {
+        out.push({ text: text, children: i === parts.length - 1 ? kids : [] });
+      });
+    });
+    return out;
   }
 
   function clusterX(xs) {
@@ -332,7 +397,7 @@
     let list = null;
     function close() {
       if (list) {
-        blocks.push({ type: 'ul', items: list });
+        blocks.push({ type: 'ul', items: finishItems(list) });
         list = null;
       }
     }
@@ -342,6 +407,27 @@
       const size = lines[i].fontSize || 9;
       return dy < Math.min(16, Math.max(12, size * 1.5));
     }
+    const rights = lines.map(lineRight).filter(function (r) { return r != null; });
+    const maxRight = rights.length ? Math.max.apply(null, rights) : null;
+    function wrapped(j) {
+      const r = lineRight(lines[j]);
+      if (r == null || maxRight == null) return true;
+      const left = Math.min.apply(null, lines.map(function (l) { return l.x; }));
+      return (r - left) >= 0.82 * (maxRight - left);
+    }
+    /* A wrapped line runs to (near) the right margin; a short line ended its item. */
+    function continues(i, text) {
+      if (i === 0) return false;
+      if (hasMarker(lines[i].text)) return false;
+      if (!tight(i)) return false;
+      if (!/^[a-z(]/.test(text)) return false;
+      const prev = lines[i - 1];
+      if (/[.!?;:]$/.test(prev.text.trim())) return false;
+      const r = lineRight(prev);
+      if (r == null || maxRight == null) return true;
+      const left = Math.min.apply(null, lines.map(function (l) { return l.x; }));
+      return (r - left) >= 0.82 * (maxRight - left);
+    }
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i];
       const k = kinds[i];
@@ -349,7 +435,7 @@
         const text = stripBullet(line.text);
         if (!list) list = [];
         if (!list.length) list.push({ text: text, children: [] });
-        else if (tight(i) && /^[a-z]/.test(text) && list[list.length - 1].children.length) {
+        else if (continues(i, text) && list[list.length - 1].children.length) {
           const ch = list[list.length - 1].children;
           ch[ch.length - 1] += ' ' + text;
         } else list[list.length - 1].children.push(text);
@@ -358,8 +444,13 @@
       if (k === 'li') {
         const text = stripBullet(line.text);
         if (!list) list = [];
-        if (list.length && tight(i) && /^[a-z(]/.test(text)) list[list.length - 1].text += ' ' + text;
+        if (list.length && continues(i, text)) list[list.length - 1].text += ' ' + text;
         else list.push({ text: text, children: [] });
+        continue;
+      }
+      if (hasMarker(line.text)) {
+        if (!list) list = [];
+        list.push({ text: stripBullet(line.text), children: [] });
         continue;
       }
       const text = line.text.trim();
@@ -372,13 +463,13 @@
         list.push({ text: text, children: [] });
         continue;
       }
-      if (list && tight(i) && /^[a-z(]/.test(text)) {
+      if (list && continues(i, text)) {
         list[list.length - 1].text += ' ' + text;
         continue;
       }
       close();
       const last = blocks[blocks.length - 1];
-      if (last && last.type === 'p' && tight(i)) last.text += ' ' + text;
+      if (last && last.type === 'p' && tight(i) && !/[.!?:]$/.test(lines[i - 1].text.trim()) && !(/^[A-Z]/.test(text) && !wrapped(i - 1))) last.text += ' ' + text;
       else blocks.push({ type: 'p', text: text });
     }
     close();
@@ -970,5 +1061,6 @@
     };
   }
 
-  window.HWTParse = { parseDocument: parseDocument, splitTitle: splitTitle };
+  window.HWTParse = { parseDocument: parseDocument, splitTitle: splitTitle,
+    _test: { buildBlocks: buildBlocks, splitLong: splitLong, tidyItem: tidyItem, stripBullet: stripBullet } };
 })();
