@@ -1,0 +1,8 @@
+/* Iframe widget overrides */
+html, body { background: transparent; min-height: 0; }
+body { background: transparent !important; }
+.app.widget { width: 100%; max-width: 1080px; padding: 12px; margin: 0 auto; }
+.drop { padding: 18px 16px; }
+.drop h2 { margin-top: 0; }
+.privacy { margin: 2px 0 8px; font-size: 13px; color: #8a6d3f; font-weight: 600; }
+@media (max-width: 600px) { .app.widget { padding: 6px; } .drop { padding: 14px 10px; } }
