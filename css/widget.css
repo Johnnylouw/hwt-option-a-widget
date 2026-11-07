@@ -6,3 +6,5 @@ body { background: transparent !important; }
 .drop h2 { margin-top: 0; }
 .privacy { margin: 2px 0 8px; font-size: 13px; color: #8a6d3f; font-weight: 600; }
 @media (max-width: 600px) { .app.widget { padding: 6px; } .drop { padding: 14px 10px; } }
+.ask-richie { margin: 0 0 10px; font-size: 13px; color: #2A3F5F; }
+.ask-richie a { color: #2A3F5F; font-weight: 700; text-decoration: underline; text-decoration-color: #C4A574; }
