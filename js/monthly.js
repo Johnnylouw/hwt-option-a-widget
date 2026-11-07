@@ -516,6 +516,33 @@
     return model;
   }
 
+
+  /* Text cleanup (typos / OCR). Numeric cells are never touched. */
+  var HWT_PM = ['HWT Process Maintenance (Pty) Ltd', 'Reg 2017/388687/07', 'PO Box 28 \u2022 Lynedoch \u2022 7603 \u2022 South Africa'];
+  function cleanupModel(model) {
+    var C = (typeof window !== 'undefined' && window.HWTCleanup) || null;
+    var log = [];
+    if (model.company.some(function (t) { return /HWT\s+Process\s+Maint/i.test(t) || /Lynedoch/i.test(t); })) {
+      model.company = HWT_PM.slice();
+    }
+    if (!C) return log;
+    function c(t) { return C.clean(t, log); }
+    model.title = c(model.title);
+    model.sections.forEach(function (s) {
+      s.kicker = c(s.kicker);
+      s.title = c(s.title);
+      s.parts.forEach(function (p) {
+        if (p.text != null && p.type !== 'rating') p.text = c(p.text);
+        if (p.items) p.items = p.items.map(c);
+        if (p.header) p.header = p.header.map(c);
+        if (p.rows) p.rows = p.rows.map(function (r) {
+          return r.map(function (cell, i) { return i > 0 && /^[\d.,\s\-\u2013<>%()]+$/.test(cell) ? cell : c(cell); });
+        });
+      });
+    });
+    return log;
+  }
+
   /* ---------------- numeric re-read of table cells ---------------- */
   async function refineCells(model, canvases) {
     var jobs = [];
@@ -797,8 +824,12 @@
       if (usedOcr) {
         setStatus('Double-checking table figures…');
         await refineCells(model, canvases);
-        model.notes.push({ level: 'warn', text: 'This PDF has no readable text layer, so it was read with on-device OCR. Check the figures against the source before sending.' });
+        model.notes.push({ text: 'Read with on-device OCR (this PDF has no usable text layer). Table figures were double-checked automatically; a quick glance against the source is still worthwhile.' });
       }
+      if (window.HWTCleanup) await window.HWTCleanup.ready();
+      var fixes = cleanupModel(model);
+      model.fixes = fixes;
+      if (fixes.length) model.notes.push({ text: fixes.length + ' text fix' + (fixes.length === 1 ? '' : 'es') + ' applied (typos / OCR), e.g. ' + fixes.slice(0, 4).map(function (f) { return '\u201c' + f.from + '\u201d \u2192 \u201c' + f.to + '\u201d'; }).join(', ') + '. Numbers were not changed.' });
       var imgCount = pages.reduce(function (a, p) { return a + p.images.length; }, 0);
       if (imgCount) model.notes.push({ text: imgCount + ' chart' + (imgCount === 1 ? '' : 's') + ' copied from the source as images.' });
       model.notes.push({ text: 'Monthly report detected. Values are copied as printed, never recalculated.' });
@@ -812,6 +843,6 @@
   window.HWTMonthly = {
     detect: detect,
     convert: convert,
-    _test: { buildModel: buildModel, classify: classify, readable: readable, cellsOf: cellsOf, splitHeading: splitHeading }
+    _test: { cleanupModel: cleanupModel, buildModel: buildModel, classify: classify, readable: readable, cellsOf: cellsOf, splitHeading: splitHeading }
   };
 })();

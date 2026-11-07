@@ -19,3 +19,15 @@ assert.deepStrictEqual(sign.lines, ['Andrew Hulsman', 'Process Engineer', 'HWT (
 assert.strictEqual(T.classify('Spier WWTP report 2026-10 Operational Report - Meter Flows'), 'monthly');
 assert.strictEqual(T.classify('Dear Ms Easthorpe Many thanks for your enquiry TREATMENT PROPOSAL'), 'proposal');
 console.log('OK monthly');
+// cleanup pass on the sample
+eval(fs.readFileSync(path.join(__dirname, '../js/cleanup.js'), 'utf8'));
+window.location = { href: 'http://localhost/' };
+window.HWTCleanup.loadText(fs.readFileSync(path.join(__dirname, '../vendor/wordlist-en.txt'), 'utf8'));
+const fixes = T.cleanupModel(m);
+assert.deepStrictEqual(m.company, ['HWT Process Maintenance (Pty) Ltd', 'Reg 2017/388687/07', 'PO Box 28 • Lynedoch • 7603 • South Africa']);
+const allText = JSON.stringify(m.sections);
+assert(allText.includes('23-Oct: Checked') && !allText.includes('23-0Oct'));
+assert(allText.includes('(October, 2026)') && allText.includes('Topped up anoxic'));
+assert(analysis.rows.some((r) => r[3] === '66714.2'));
+fixes.forEach((f) => console.log('  fix:', f.rule, JSON.stringify(f.from), '->', JSON.stringify(f.to)));
+console.log('OK monthly cleanup');

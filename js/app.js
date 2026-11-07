@@ -441,6 +441,25 @@
       var pages = await readPdf(file);
       setStatus('Laying out ' + file.name);
       var model = window.HWTParse.parseDocument(pages);
+      if (window.HWTCleanup) {
+        await window.HWTCleanup.ready();
+        var fixLog = [];
+        var fx = function (t) { return typeof t === 'string' ? window.HWTCleanup.clean(t, fixLog) : t; };
+        model.intro = (model.intro || []).map(fx);
+        (model.body || []).forEach(function (b) {
+          if (b.text) b.text = fx(b.text);
+          (b.items || []).forEach(function (it) { it.text = fx(it.text); it.children = (it.children || []).map(fx); });
+        });
+        (model.media || []).forEach(function (m) { if (m.caption) m.caption = fx(m.caption); });
+        (model.terms || []).forEach(function (t) { if (!t.raw) t.value = fx(t.value); });
+        (model.extras || []).forEach(function (e) { e.paragraphs = (e.paragraphs || []).map(fx); });
+        (model.budgetNotes || []).forEach(function (t, i) { model.budgetNotes[i] = fx(t); });
+        if (fixLog.length) {
+          model.notes = model.notes || [];
+          model.notes.push({ text: fixLog.length + ' text fix' + (fixLog.length === 1 ? '' : 'es') + ' applied (typos / OCR), e.g. ' + fixLog.slice(0, 4).map(function (f) { return '\u201c' + f.from + '\u201d \u2192 \u201c' + f.to + '\u201d'; }).join(', ') + '. Amounts were not changed.' });
+        }
+        model.fixes = fixLog;
+      }
       if (!useful(model)) {
         throw new Error('No proposal text could be read from this PDF. Nothing was invented.');
       }
