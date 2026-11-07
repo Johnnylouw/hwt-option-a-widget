@@ -14,3 +14,13 @@ assert.strictEqual(c('Biornass is settling well'), 'Biomass is settling well');
  'Welman is starting to dig at the Waldorf school', 'MLSS and COD in the anoxic zone of the WWTP clarifier', 'Samples are taken to Vinlab for analysis.',
  '3 x Bags of lime delivered (25kgs)', 'Power usage for October 2026 was 10,793 kWhrs'].forEach((t) => assert.strictEqual(c(t), t, t));
 console.log('OK cleanup');
+// subset via applyModel on a proposal-shaped model
+{
+  const mk = () => ({ intro: ['The tretment plant is runnirg well , no issues'], body: [], media: [], terms: [], extras: [], budgetNotes: [] });
+  const all = HWTCleanup.applyModel(mk(), HWTCleanup.walkProposal, null);
+  const keep = all.find((f) => f.from === 'runnirg');
+  const m = mk();
+  HWTCleanup.applyModel(m, HWTCleanup.walkProposal, (f) => f.key !== keep.key);
+  assert.strictEqual(m.intro[0], 'The treatment plant is runnirg well, no issues');
+  console.log('OK cleanup subset');
+}

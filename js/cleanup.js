@@ -84,6 +84,30 @@
 
   var CONFUSIONS = [[/0/g, 'o'], [/1/g, 'l'], [/I/g, 'l'], [/l/g, 'i'], [/rn/g, 'm'], [/m/g, 'rn'], [/vv/g, 'w'], [/cl/g, 'd'], [/5/g, 's']];
 
+  /* Record a suggested fix; returns whether it should be applied (log.allow decides, default yes). */
+  function decide(log, fix) {
+    fix.field = log.field || '';
+    fix.section = log.section || '';
+    var declined = log._declined || (log._declined = new Set());
+    if (declined.has(fix.field + '|' + fix.from)) return false;
+    var counts = log._counts || (log._counts = {});
+    var base = fix.field + '|' + fix.rule + '|' + fix.from;
+    counts[base] = (counts[base] || 0) + 1;
+    fix.key = base + '|' + counts[base];
+    if (log.text && fix.ctx == null) {
+      var at = log.text.indexOf(fix.from);
+      if (at < 0) at = log.text.toLowerCase().indexOf(String(fix.from).toLowerCase());
+      if (at >= 0) {
+        var a = Math.max(0, at - 30), b = Math.min(log.text.length, at + String(fix.from).length + 30);
+        fix.ctx = (a > 0 ? '\u2026' : '') + log.text.slice(a, b) + (b < log.text.length ? '\u2026' : '');
+      } else fix.ctx = log.text.length > 80 ? log.text.slice(0, 80) + '\u2026' : log.text;
+    }
+    fix.applied = log.allow ? !!log.allow(fix) : true;
+    if (!fix.applied) declined.add(fix.field + '|' + fix.from);
+    log.push(fix);
+    return fix.applied;
+  }
+
   function fixWord(tok, log) {
     if (!dict || tok.length < 3) return tok;
     // only lower-case words (or OCR digit/letter mixes); proper nouns and acronyms are left alone
@@ -97,8 +121,7 @@
       var cand = tok.replace(CONFUSIONS[i][0], CONFUSIONS[i][1]);
       if (cand !== tok && /^[A-Za-z']+$/.test(cand) && known(cand.toLowerCase())) {
         var fixed = matchCase(tok, cand.toLowerCase());
-        log.push({ from: tok, to: fixed, rule: 'OCR letters' });
-        return fixed;
+        return decide(log, { from: tok, to: fixed, rule: 'OCR letters' }) ? fixed : tok;
       }
     }
     if (!/^[a-z']+$/.test(lower) || capital || lower.length < 6) return tok;
@@ -111,8 +134,7 @@
     });
     if (best && ties === 0 && bestLv <= 40) {
       var f = matchCase(tok, best);
-      log.push({ from: tok, to: f, rule: 'spelling' });
-      return f;
+      return decide(log, { from: tok, to: f, rule: 'spelling' }) ? f : tok;
     }
     return tok;
   }
@@ -122,6 +144,7 @@
     if (text == null) return text;
     var s = String(text);
     var orig = s;
+    log.text = orig;
     var masks = [];
     s = s.replace(/\b[\w.+-]+@[\w-]+(\.[\w-]+)+\b|\bhttps?:\/\/\S+|\bwww\.\S+|\(mailto:[^)]*\)/g, function (m) {
       masks.push(m); return '\u0000' + (masks.length - 1) + '\u0000';
@@ -130,7 +153,7 @@
       s = s.replace(re, function () {
         var m = arguments[0];
         var r = typeof to === 'function' ? to.apply(null, arguments) : m.replace(re, to);
-        if (r !== m) log.push({ from: m, to: r, rule: name });
+        if (r !== m && !decide(log, { from: m, to: r, rule: name })) return m;
         return r;
       });
     }
@@ -169,5 +192,42 @@
     return s.trim();
   }
 
-  root.HWTCleanup = { ready: ready, loadText: loadText, clean: clean, known: known };
+  /* Run cleanup over a model. walker(model, visit) calls visit(text, fieldId, sectionLabel) and stores the result.
+     allow(fix) -> bool picks which suggestions are applied (null = all). Returns every suggestion with .applied. */
+  function applyModel(model, walker, allow) {
+    var log = [];
+    log.allow = allow || null;
+    walker(model, function (text, field, section) {
+      if (typeof text !== 'string' || !text) return text;
+      log.field = field;
+      log.section = section || '';
+      return clean(text, log);
+    });
+    return log;
+  }
+
+  /* Proposal model walker: prose only (no schedule, amounts, To/From/Date). */
+  function walkProposal(model, visit) {
+    model.intro = (model.intro || []).map(function (t, i) { return visit(t, 'intro' + i, 'Introduction'); });
+    (model.body || []).forEach(function (b, bi) {
+      if (b.text) b.text = visit(b.text, 'b' + bi, 'Proposal text');
+      (b.items || []).forEach(function (it, ii) {
+        it.text = visit(it.text, 'b' + bi + '.i' + ii, 'Proposal text');
+        it.children = (it.children || []).map(function (c, ci) { return visit(c, 'b' + bi + '.i' + ii + '.c' + ci, 'Proposal text'); });
+      });
+    });
+    (model.media || []).forEach(function (m, i) { if (m.caption) m.caption = visit(m.caption, 'media' + i, 'Media'); });
+    (model.terms || []).forEach(function (t, i) { if (!t.raw) t.value = visit(t.value, 'term' + i, t.label || 'Terms'); });
+    (model.extras || []).forEach(function (e, ei) {
+      e.paragraphs = (e.paragraphs || []).map(function (t, i) { return visit(t, 'x' + ei + '.' + i, e.title || 'Notes'); });
+    });
+    if (model.budgetNotes) model.budgetNotes = model.budgetNotes.map(function (t, i) { return visit(t, 'budget' + i, 'Budget notes'); });
+  }
+
+  function allowKeys(keys) {
+    var set = keys instanceof Set ? keys : new Set(keys || []);
+    return function (fix) { return set.has(fix.key); };
+  }
+
+  root.HWTCleanup = { ready: ready, loadText: loadText, clean: clean, known: known, decide: decide, applyModel: applyModel, allowKeys: allowKeys, walkProposal: walkProposal };
 })(typeof window !== 'undefined' ? window : globalThis);

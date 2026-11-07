@@ -31,3 +31,22 @@ assert(allText.includes('(October, 2026)') && allText.includes('Topped up anoxic
 assert(analysis.rows.some((r) => r[3] === '66714.2'));
 fixes.forEach((f) => console.log('  fix:', f.rule, JSON.stringify(f.from), '->', JSON.stringify(f.to)));
 console.log('OK monthly cleanup');
+// review step: apply only a subset of suggestions
+{
+  const fresh = () => { const pg = JSON.parse(JSON.stringify(require('./fixture-monthly-ocr.json'))); pg.forEach((p) => { p.lines.forEach((l) => l.words.forEach((w) => { w.page = p.page; })); p.images = (p.images || []).map((r) => Object.assign({ dataUrl: 'x' }, r)); }); return T.buildModel(pg); };
+  const sugg = T.cleanupModel(fresh(), null);
+  const dateFix = sugg.find((f) => f.from === '23-0Oct');
+  const company = sugg.find((f) => f.rule === 'company block');
+  assert(dateFix && company && sugg.every((f) => f.key), 'keys present');
+  const keys = new Set(sugg.map((f) => f.key)); keys.delete(dateFix.key); keys.delete(company.key);
+  const m2 = fresh();
+  const log2 = T.cleanupModel(m2, (f) => keys.has(f.key));
+  const txt = JSON.stringify(m2.sections);
+  assert(txt.includes('23-0Oct: Checked'), 'unticked date fix keeps original text verbatim');
+  assert(txt.includes('(October, 2026)') && txt.includes('Topped up anoxic'), 'ticked fixes applied');
+  assert(!m2.company.includes('Reg 2017/388687/07'), 'unticked company block keeps OCR header');
+  assert.deepStrictEqual(log2.map((f) => f.key), sugg.map((f) => f.key), 'same suggestion keys on re-apply');
+  const m3 = fresh(); T.cleanupModel(m3, () => false);
+  assert(JSON.stringify(m3.sections) === JSON.stringify(fresh().sections), 'keep original = untouched');
+  console.log('OK review subset');
+}

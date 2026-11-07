@@ -519,28 +519,41 @@
 
   /* Text cleanup (typos / OCR). Numeric cells are never touched. */
   var HWT_PM = ['HWT Process Maintenance (Pty) Ltd', 'Reg 2017/388687/07', 'PO Box 28 \u2022 Lynedoch \u2022 7603 \u2022 South Africa'];
-  function cleanupModel(model) {
-    var C = (typeof window !== 'undefined' && window.HWTCleanup) || null;
-    var log = [];
-    if (model.company.some(function (t) { return /HWT\s+Process\s+Maint/i.test(t) || /Lynedoch/i.test(t); })) {
-      model.company = HWT_PM.slice();
-    }
-    if (!C) return log;
-    function c(t) { return C.clean(t, log); }
-    model.title = c(model.title);
-    model.sections.forEach(function (s) {
-      s.kicker = c(s.kicker);
-      s.title = c(s.title);
-      s.parts.forEach(function (p) {
-        if (p.text != null && p.type !== 'rating') p.text = c(p.text);
-        if (p.items) p.items = p.items.map(c);
-        if (p.header) p.header = p.header.map(c);
-        if (p.rows) p.rows = p.rows.map(function (r) {
-          return r.map(function (cell, i) { return i > 0 && /^[\d.,\s\-\u2013<>%()]+$/.test(cell) ? cell : c(cell); });
+  function walkMonthly(model, visit) {
+    model.title = visit(model.title, 'title', 'Title');
+    model.sections.forEach(function (s, si) {
+      var label = s.title || ('Section ' + (si + 1));
+      var f = 's' + si + '.';
+      s.kicker = visit(s.kicker, f + 'kicker', label);
+      s.title = visit(s.title, f + 'title', label);
+      label = s.title || label;
+      s.parts.forEach(function (p, pi) {
+        var g = f + 'p' + pi + '.';
+        if (p.text != null && p.type !== 'rating') p.text = visit(p.text, g + 'text', label);
+        if (p.items) p.items = p.items.map(function (t, i) { return visit(t, g + 'i' + i, label); });
+        if (p.header) p.header = p.header.map(function (t, i) { return visit(t, g + 'h' + i, label); });
+        if (p.rows) p.rows = p.rows.map(function (r, ri) {
+          return r.map(function (cell, ci) {
+            return ci > 0 && /^[\d.,\s\-\u2013<>%()]+$/.test(cell) ? cell : visit(cell, g + 'r' + ri + 'c' + ci, label);
+          });
         });
       });
     });
-    return log;
+  }
+
+  /* Suggest/apply fixes. allow(fix) chooses which are applied (null = all). Returns all suggestions. */
+  function cleanupModel(model, allow) {
+    var C = (typeof window !== 'undefined' && window.HWTCleanup) || null;
+    var log = [];
+    if (model.company.some(function (t) { return /HWT\s+Process\s+Maint/i.test(t) || /Lynedoch/i.test(t); })
+      && model.company.join('|') !== HWT_PM.join('|')) {
+      var fix = { rule: 'company block', from: model.company.join(' / '), to: HWT_PM.join(' / '), field: 'company', section: 'Header', key: 'company|company block|1', ctx: 'Letterhead company details' };
+      fix.applied = allow ? !!allow(fix) : true;
+      log.push(fix);
+      if (fix.applied) model.company = HWT_PM.slice();
+    }
+    if (!C) return log;
+    return log.concat(C.applyModel(model, walkMonthly, allow));
   }
 
   /* ---------------- numeric re-read of table cells ---------------- */
@@ -827,14 +840,7 @@
         model.notes.push({ text: 'Read with on-device OCR (this PDF has no usable text layer). Table figures were double-checked automatically; a quick glance against the source is still worthwhile.' });
       }
       if (window.HWTCleanup) await window.HWTCleanup.ready();
-      var fixes = cleanupModel(model);
-      model.fixes = fixes;
-      if (fixes.length) model.notes.push({ text: fixes.length + ' text fix' + (fixes.length === 1 ? '' : 'es') + ' applied (typos / OCR), e.g. ' + fixes.slice(0, 4).map(function (f) { return '\u201c' + f.from + '\u201d \u2192 \u201c' + f.to + '\u201d'; }).join(', ') + '. Numbers were not changed.' });
-      var imgCount = pages.reduce(function (a, p) { return a + p.images.length; }, 0);
-      if (imgCount) model.notes.push({ text: imgCount + ' chart' + (imgCount === 1 ? '' : 's') + ' copied from the source as images.' });
-      model.notes.push({ text: 'Monthly report detected. Values are copied as printed, never recalculated.' });
-      var sheets = await render(model, mount);
-      return { model: model, sheets: sheets };
+      return { model: model };
     } finally {
       pdf.destroy();
     }
@@ -843,6 +849,8 @@
   window.HWTMonthly = {
     detect: detect,
     convert: convert,
+    render: render,
+    cleanupModel: cleanupModel,
     _test: { cleanupModel: cleanupModel, buildModel: buildModel, classify: classify, readable: readable, cellsOf: cellsOf, splitHeading: splitHeading }
   };
 })();

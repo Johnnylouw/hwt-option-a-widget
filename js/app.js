@@ -395,6 +395,106 @@
       || (model.labs && model.labs.length) || (model.extras && model.extras.length));
   }
 
+  function cloneModel(m) {
+    return typeof structuredClone === 'function' ? structuredClone(m) : JSON.parse(JSON.stringify(m));
+  }
+
+  /* Review step: list suggested text fixes with checkboxes; only ticked ones are applied. */
+  async function setupReview(job, file, button, rawModel, cleanFn, renderFn) {
+    var mount = job.querySelector('.sheets');
+    var raw = cloneModel(rawModel);
+    var probe = cloneModel(raw);
+    var suggestions = cleanFn(probe, null);
+    var ticked = new Set(suggestions.map(function (f) { return f.key; }));
+    var renderToken = 0;
+
+    async function build() {
+      var token = ++renderToken;
+      var m = cloneModel(raw);
+      cleanFn(m, function (fix) { return ticked.has(fix.key); });
+      if (token !== renderToken) return;
+      job._model = m;
+      window.__lastModel = m;
+      m.fixes = suggestions.map(function (f) { return { from: f.from, to: f.to, rule: f.rule, section: f.section, key: f.key, applied: ticked.has(f.key) }; });
+      job._sheets = await renderFn(m, mount);
+      fitFrames();
+    }
+    function doExport(btn) { return exportPdf(job._sheets, downloadName(file), btn); }
+
+    await build();
+    button.disabled = false;
+    button.addEventListener('click', function () { doExport(button); });
+    if (!suggestions.length) return;
+
+    var panel = document.createElement('section');
+    panel.className = 'review';
+    panel.innerHTML = ''
+      + '<div class="review-head">'
+      + '  <div><h3>Suggested text fixes <span class="review-count"></span></h3>'
+      + '  <p>Tick the fixes to apply. Unticked text stays exactly as in the source. Numbers are never changed.</p></div>'
+      + '  <div class="review-actions">'
+      + '    <button type="button" class="ghost sm" data-act="all">Select all</button>'
+      + '    <button type="button" class="ghost sm" data-act="none">Clear all</button>'
+      + '    <button type="button" class="ghost sm" data-act="keep">Keep original (no fixes)</button>'
+      + '    <button type="button" class="primary sm" data-act="export">Export PDF</button>'
+      + '  </div>'
+      + '</div>'
+      + '<ul class="review-list"></ul>';
+    var list = panel.querySelector('.review-list');
+    suggestions.forEach(function (f) {
+      var li = document.createElement('li');
+      var label = document.createElement('label');
+      var box = document.createElement('input');
+      box.type = 'checkbox';
+      box.checked = true;
+      box.dataset.key = f.key;
+      label.appendChild(box);
+      var body = document.createElement('span');
+      body.className = 'rv-body';
+      var top = document.createElement('span');
+      top.className = 'rv-change';
+      var b = document.createElement('del'); b.textContent = f.from;
+      var arrow = document.createElement('span'); arrow.className = 'rv-arrow'; arrow.textContent = '\u2192';
+      var a = document.createElement('ins'); a.textContent = f.to;
+      top.appendChild(b); top.appendChild(arrow); top.appendChild(a);
+      var meta = document.createElement('span');
+      meta.className = 'rv-meta';
+      meta.textContent = (f.section ? f.section + ' \u00b7 ' : '') + f.rule + (f.ctx ? ' \u00b7 \u201c' + f.ctx + '\u201d' : '');
+      body.appendChild(top); body.appendChild(meta);
+      label.appendChild(body);
+      li.appendChild(label);
+      list.appendChild(li);
+    });
+    var count = panel.querySelector('.review-count');
+    function sync() {
+      count.textContent = '(' + ticked.size + ' of ' + suggestions.length + ' ticked)';
+      list.querySelectorAll('input').forEach(function (bx) { bx.checked = ticked.has(bx.dataset.key); bx.closest('li').classList.toggle('off', !bx.checked); });
+    }
+    var timer = null;
+    function changed() { sync(); clearTimeout(timer); timer = setTimeout(build, 250); }
+    list.addEventListener('change', function (e) {
+      var bx = e.target;
+      if (!bx || bx.type !== 'checkbox') return;
+      if (bx.checked) ticked.add(bx.dataset.key); else ticked.delete(bx.dataset.key);
+      changed();
+    });
+    panel.querySelector('.review-actions').addEventListener('click', async function (e) {
+      var act = e.target && e.target.dataset && e.target.dataset.act;
+      if (!act) return;
+      if (act === 'all') { suggestions.forEach(function (f) { ticked.add(f.key); }); changed(); }
+      if (act === 'none') { ticked.clear(); changed(); }
+      if (act === 'keep' || act === 'export') {
+        if (act === 'keep') { ticked.clear(); sync(); }
+        clearTimeout(timer);
+        await build();
+        await doExport(e.target);
+      }
+    });
+    sync();
+    job.insertBefore(panel, mount);
+    job._review = { ticked: ticked, suggestions: suggestions };
+  }
+
   async function convertFile(file) {
     var job = document.createElement('article');
     job.className = 'job';
@@ -421,45 +521,22 @@
       if (kind === 'monthly') {
         var out = await window.HWTMonthly.convert(file, job.querySelector('.sheets'), setStatus);
         var mm = out.model;
-        job._model = mm;
-        window.__lastModel = mm;
         job.querySelector('h2').textContent = mm.title || 'Monthly plant report';
         job.querySelector('.who').textContent = 'Monthly operations report';
         job.querySelector('.chip-l').textContent = 'Rating';
         job.querySelector('.chip strong').textContent = mm.rating || 'Not found';
         job.querySelector('.chip-s').textContent = 'Printed figures, not recalculated.';
         renderNotes(job.querySelector('.notes'), mm.notes);
-        job._sheets = out.sheets;
-        fitFrames();
-        button.disabled = false;
-        button.addEventListener('click', function () {
-          exportPdf(job._sheets, downloadName(file), button);
-        });
+        await setupReview(job, file, button, mm,
+          function (m, allow) { return window.HWTMonthly.cleanupModel(m, allow); },
+          function (m, mount) { return window.HWTMonthly.render(m, mount); });
         setStatus('');
         return;
       }
       var pages = await readPdf(file);
       setStatus('Laying out ' + file.name);
       var model = window.HWTParse.parseDocument(pages);
-      if (window.HWTCleanup) {
-        await window.HWTCleanup.ready();
-        var fixLog = [];
-        var fx = function (t) { return typeof t === 'string' ? window.HWTCleanup.clean(t, fixLog) : t; };
-        model.intro = (model.intro || []).map(fx);
-        (model.body || []).forEach(function (b) {
-          if (b.text) b.text = fx(b.text);
-          (b.items || []).forEach(function (it) { it.text = fx(it.text); it.children = (it.children || []).map(fx); });
-        });
-        (model.media || []).forEach(function (m) { if (m.caption) m.caption = fx(m.caption); });
-        (model.terms || []).forEach(function (t) { if (!t.raw) t.value = fx(t.value); });
-        (model.extras || []).forEach(function (e) { e.paragraphs = (e.paragraphs || []).map(fx); });
-        (model.budgetNotes || []).forEach(function (t, i) { model.budgetNotes[i] = fx(t); });
-        if (fixLog.length) {
-          model.notes = model.notes || [];
-          model.notes.push({ text: fixLog.length + ' text fix' + (fixLog.length === 1 ? '' : 'es') + ' applied (typos / OCR), e.g. ' + fixLog.slice(0, 4).map(function (f) { return '\u201c' + f.from + '\u201d \u2192 \u201c' + f.to + '\u201d'; }).join(', ') + '. Amounts were not changed.' });
-        }
-        model.fixes = fixLog;
-      }
+      if (window.HWTCleanup) await window.HWTCleanup.ready();
       if (!useful(model)) {
         throw new Error('No proposal text could be read from this PDF. Nothing was invented.');
       }
@@ -483,13 +560,9 @@
         li.textContent = model.scheduleRows + ' schedule ' + (model.scheduleRows === 1 ? 'line' : 'lines') + ' copied as printed.';
         job.querySelector('.notes').appendChild(li);
       }
-      var sheets = await window.HWTRender.renderDocument(model, job.querySelector('.sheets'));
-      job._sheets = sheets;
-      fitFrames();
-      button.disabled = false;
-      button.addEventListener('click', function () {
-        exportPdf(job._sheets, downloadName(file), button);
-      });
+      await setupReview(job, file, button, model,
+        function (m, allow) { return window.HWTCleanup ? window.HWTCleanup.applyModel(m, window.HWTCleanup.walkProposal, allow) : []; },
+        function (m, mount) { return window.HWTRender.renderDocument(m, mount); });
       setStatus('');
     } catch (err) {
       job.querySelector('h2').textContent = 'Could not convert';
