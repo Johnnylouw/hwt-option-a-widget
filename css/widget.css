@@ -6,5 +6,21 @@ body { background: transparent !important; }
 .drop h2 { margin-top: 0; }
 .privacy { margin: 2px 0 8px; font-size: 13px; color: #8a6d3f; font-weight: 600; }
 @media (max-width: 600px) { .app.widget { padding: 6px; } .drop { padding: 14px 10px; } }
-.ask-richie { margin: 0 0 10px; font-size: 13px; color: #2A3F5F; }
-.ask-richie a { color: #2A3F5F; font-weight: 700; text-decoration: underline; text-decoration-color: #C4A574; }
+
+/* Ask Richie panel */
+.richie { background: #FBF8F2; border: 1px solid #e4d8c6; border-top: 3px solid #C4A574; border-radius: 6px; padding: 10px 12px; margin: 10px 0 12px; }
+.richie-head h3 { margin: 0; font-size: 15px; color: #2A3F5F; }
+.richie-head p { margin: 2px 0 8px; font-size: 12px; color: #5c6570; }
+.richie-form { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 12px; align-items: end; }
+.richie-form label { display: flex; flex-direction: column; gap: 3px; font-size: 11.5px; font-weight: 700; color: #8d7040; letter-spacing: 0.02em; }
+.richie-form input[type=email], .richie-form input[type=text] { font: inherit; font-size: 13px; font-weight: 400; color: #243044; padding: 6px 8px; border: 1px solid #d7c4a4; border-radius: 4px; background: #fff; min-width: 0; }
+.richie-form input:focus { outline: 2px solid #2A3F5F; outline-offset: 0; }
+.rf-file { display: flex; gap: 8px; align-items: center; font-size: 12.5px; color: #2A3F5F; min-width: 0; }
+.rf-file span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rf-go { display: flex; gap: 10px; align-items: center; justify-content: flex-end; }
+.richie button.sm { padding: 5px 10px; font-size: 12.5px; white-space: nowrap; }
+.rf-msg { font-size: 12.5px; }
+.rf-msg.ok { color: #2f5d45; font-weight: 600; }
+.rf-msg.err { color: #8a4b2a; font-weight: 600; }
+.rf-msg.busy { color: #8d7040; }
+@media (max-width: 560px) { .richie-form { grid-template-columns: 1fr; } .rf-go { justify-content: flex-start; } }

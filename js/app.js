@@ -578,6 +578,7 @@
 
   async function handleFiles(fileList) {
     var files = [].slice.call(fileList || []).filter(Boolean);
+    if (files.length) document.dispatchEvent(new CustomEvent('hwt:files', { detail: files }));
     if (!files.length || busy) return;
     busy = true;
     pick.disabled = true;

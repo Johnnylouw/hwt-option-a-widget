@@ -16,7 +16,6 @@
     <section class="drop" id="drop">
       <h2>Drop an HWT proposal or monthly report PDF</h2>
       <p class="privacy">Converted in your browser. Your PDF is never uploaded.</p>
-      <p class="ask-richie">Rather have Richie do it? <a href="mailto:johan@hwt.co.za?subject=Ask%20Richie%3A%20Option%20A&body=Hi%20Richie%2C%20please%20convert%20the%20attached%20PDF%20to%20Option%20A.%0A%0A(Attach%20the%20proposal%20or%20monthly%20report%20PDF%20before%20sending.)" target="_top">Email the PDF to Richie</a> from your @hwt.co.za address and the Option A PDF comes back by email (weekdays, usually within 15 minutes).</p>
       <div class="actions">
         <button type="button" class="primary" id="pick">Choose PDFs</button>
         <button type="button" class="ghost" id="clear" hidden>Clear</button>
@@ -25,10 +24,35 @@
       <input id="file" type="file" accept="application/pdf,.pdf" multiple hidden>
     </section>
 
+    <section class="richie" id="richie" hidden>
+      <div class="richie-head">
+        <h3>Ask Richie</h3>
+        <p>Rather have Richie do it? This sends the PDF by email to Richie (johan@hwt.co.za); the Option A PDF comes back to your inbox (weekdays, usually within 15 minutes).</p>
+      </div>
+      <form class="richie-form" id="richie-form" novalidate>
+        <label class="rf-email">Your @hwt.co.za email
+          <input type="email" id="richie-email" autocomplete="email" placeholder="name@hwt.co.za" required>
+        </label>
+        <label class="rf-note">Note (optional)
+          <input type="text" id="richie-note" maxlength="500" placeholder="e.g. client name, deadline">
+        </label>
+        <div class="rf-file">
+          <span id="richie-file">No PDF selected</span>
+          <button type="button" class="ghost sm" id="richie-pick">Choose PDF</button>
+          <input type="file" id="richie-input" accept="application/pdf,.pdf" hidden>
+        </div>
+        <div class="rf-go">
+          <button type="submit" class="primary sm" id="richie-send">Send to Richie</button>
+          <span class="rf-msg" id="richie-msg" role="status"></span>
+        </div>
+      </form>
+    </section>
+
     <p class="status" id="status" role="status"></p>
     <div id="results"></div>
   </main>
 
+  <script src="js/config.js"></script>
   <script src="vendor/pdf.min.js"></script>
   <script src="vendor/html2canvas.min.js"></script>
   <script src="vendor/jspdf.umd.min.js"></script>
@@ -38,5 +62,6 @@
   <script src="vendor/tesseract/tesseract.min.js"></script>
   <script src="js/monthly.js"></script>
   <script src="js/app.js"></script>
+  <script src="js/ask-richie.js"></script>
 </body>
 </html>
