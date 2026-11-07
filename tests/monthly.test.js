@@ -1,0 +1,21 @@
+// Run: node tests/monthly.test.js — parses OCR lines from the Spier Oct 2026 sample (no browser).
+const fs = require('fs'), path = require('path'), assert = require('assert');
+global.window = {};
+eval(fs.readFileSync(path.join(__dirname, '../js/monthly.js'), 'utf8'));
+const T = window.HWTMonthly._test;
+const pages = require('./fixture-monthly-ocr.json');
+pages.forEach((p) => { p.lines.forEach((l) => l.words.forEach((w) => { w.page = p.page; })); p.images = (p.images || []).map((r) => Object.assign({ dataUrl: 'x' }, r)); });
+const m = T.buildModel(pages);
+assert.strictEqual(m.title, 'Spier WWTP report 2026-10 (Oct)');
+assert.strictEqual(m.rating, '99A');
+const tables = [].concat(...m.sections.map((s) => s.parts.filter((p) => p.type === 'table')));
+const analysis = tables.find((t) => t.header && t.header[0] === 'Parameter');
+assert(analysis && analysis.header.length === 7 && analysis.rows.length === 16, "analysis table 7 cols x 16 rows");
+const motors = tables.find((t) => t.rows.some((r) => r[0] === 'Feed pump 1'));
+assert(motors && motors.rows.length === 7, 'motor hours table split from comments column');
+assert.strictEqual(m.sections.reduce((n, s) => n + s.parts.filter((p) => p.type === 'image').length, 0), 5);
+const sign = [].concat(...m.sections.map((s) => s.parts)).find((p) => p.type === 'signoff');
+assert.deepStrictEqual(sign.lines, ['Andrew Hulsman', 'Process Engineer', 'HWT (Pty) Ltd', 'hwt@iafrica.com']);
+assert.strictEqual(T.classify('Spier WWTP report 2026-10 Operational Report - Meter Flows'), 'monthly');
+assert.strictEqual(T.classify('Dear Ms Easthorpe Many thanks for your enquiry TREATMENT PROPOSAL'), 'proposal');
+console.log('OK monthly');

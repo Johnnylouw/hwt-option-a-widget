@@ -1,0 +1,44 @@
+/* Monthly plant report (warm Option A) */
+.mr-sheet .band { margin-top: 14px; }
+.mr-tail { font-size: 13px !important; color: rgba(255,255,255,0.82) !important; }
+.mr-kpis { display: flex; gap: 8px; margin: 12px 0 4px; }
+.mr-kpi { flex: 1 1 0; background: var(--cream-deep); border-top: 3px solid var(--sand); border-radius: 3px; padding: 8px 10px 7px; min-width: 0; }
+.mr-kpi.hero { background: var(--navy); color: #fff; }
+.mr-kpi-l { font-size: 9.5px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: var(--sand-ink); }
+.mr-kpi.hero .mr-kpi-l { color: var(--sand); }
+.mr-kpi-v { font-size: 22px; font-weight: 700; line-height: 1.1; color: var(--navy); font-variant-numeric: tabular-nums; }
+.mr-kpi.hero .mr-kpi-v { color: #fff; }
+.mr-kpi-u { font-size: 10.5px; color: var(--muted); }
+.mr-kpi.hero .mr-kpi-u { color: rgba(255,255,255,0.75); }
+.mr-sec { margin-top: 14px; padding-top: 8px; border-top: 1px solid #ddc7a4; }
+.flow > .mr-sec:first-child { margin-top: 4px; border-top: 0; padding-top: 0; }
+.mr-sec-title { margin: 1px 0 4px; font-size: 19px; line-height: 1.15; color: var(--navy); font-weight: 700; }
+.mr-sec-title .num { color: var(--sand); margin-right: 8px; }
+.mr-cap { margin: 0 0 6px; font-size: 12px; font-style: italic; color: #4e5964; }
+.mr-sub { margin: 8px 0 4px; font-size: 13.5px; color: var(--navy); font-weight: 700; }
+.mr-ttl { margin: 8px 0 4px; font-size: 12.5px; color: var(--navy); font-weight: 700; }
+.mr-p { font-size: 13px; line-height: 1.4; color: #2c3338; }
+.mr-items li { font-size: 12.5px !important; line-height: 1.38 !important; }
+.mr-table-wrap { margin: 4px 0 8px; }
+table.mr-table { width: 100%; border-collapse: collapse; font-size: 11.5px; color: #2c3338; }
+table.mr-table.kv { width: auto; min-width: 52%; }
+table.mr-table th { background: #e8e0d2; color: var(--navy); text-align: left; font-weight: 700; padding: 5px 7px; font-size: 10.5px; }
+table.mr-table td { padding: 4px 7px; border-bottom: 1px solid #ece2d3; }
+table.mr-table tbody tr:nth-child(even) td { background: #f6f1e8; }
+table.mr-table td:first-child { font-weight: 600; color: var(--navy-ink); }
+table.mr-table td.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+table.mr-table.kv td.num { text-align: right; }
+table.mr-table tr.total td { background: var(--navy) !important; color: #fff; font-weight: 700; border-bottom: 0; }
+.mr-chip { display: inline-block; padding: 1px 7px; border-radius: 9px; font-size: 10.5px; font-weight: 600; }
+.mr-ok { background: #e7efe4; color: var(--ok); }
+.mr-flag { background: #f6e3d4; color: var(--warn); }
+.mr-rating { display: flex; justify-content: flex-end; margin: 4px 0 6px; }
+.mr-rating .quote-card { flex: 0 0 auto; min-width: 150px; }
+.mr-rating .qa { font-size: 24px; }
+.mr-foot { font-size: 11px; font-style: italic; color: var(--muted); margin: 2px 0 6px; }
+.mr-fig { margin: 2px 0 8px; background: #fff; border: 1px solid var(--line); border-radius: 4px; padding: 6px; }
+.mr-fig img { display: block; width: 100%; height: auto; max-height: 300px; object-fit: contain; }
+.mr-sign { margin-top: 12px; padding: 10px 14px; background: var(--cream-deep); border-left: 4px solid var(--sand); border-radius: 3px; max-width: 320px; }
+.mr-sign-l { font-size: 9.5px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; color: var(--sand-ink); }
+.mr-sign-n { font-size: 17px; font-weight: 700; color: var(--navy); margin-top: 2px; }
+.mr-sign-x { font-size: 12px; color: #4e5964; }

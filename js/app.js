@@ -414,6 +414,30 @@
       if (file.type && file.type !== 'application/pdf' && !/\.pdf$/i.test(file.name)) {
         throw new Error('This file is not a PDF.');
       }
+      var kind = 'proposal';
+      if (window.HWTMonthly) {
+        try { kind = await window.HWTMonthly.detect(file, setStatus); } catch (detectErr) { kind = 'proposal'; }
+      }
+      if (kind === 'monthly') {
+        var out = await window.HWTMonthly.convert(file, job.querySelector('.sheets'), setStatus);
+        var mm = out.model;
+        job._model = mm;
+        window.__lastModel = mm;
+        job.querySelector('h2').textContent = mm.title || 'Monthly plant report';
+        job.querySelector('.who').textContent = 'Monthly operations report';
+        job.querySelector('.chip-l').textContent = 'Rating';
+        job.querySelector('.chip strong').textContent = mm.rating || 'Not found';
+        job.querySelector('.chip-s').textContent = 'Printed figures, not recalculated.';
+        renderNotes(job.querySelector('.notes'), mm.notes);
+        job._sheets = out.sheets;
+        fitFrames();
+        button.disabled = false;
+        button.addEventListener('click', function () {
+          exportPdf(job._sheets, downloadName(file), button);
+        });
+        setStatus('');
+        return;
+      }
       var pages = await readPdf(file);
       setStatus('Laying out ' + file.name);
       var model = window.HWTParse.parseDocument(pages);
