@@ -38,9 +38,17 @@
   function toBase64(f) {
     return new Promise(function (resolve, reject) {
       var r = new FileReader();
-      r.onload = function () { resolve(String(r.result).split(',')[1] || ''); };
+      r.onload = function () {
+        var u = new Uint8Array(r.result), at = -1, lim = Math.min(u.length - 5, 2048);
+        for (var i = 0; i <= lim; i++) { if (u[i] === 0x25 && u[i+1] === 0x50 && u[i+2] === 0x44 && u[i+3] === 0x46 && u[i+4] === 0x2d) { at = i; break; } }
+        if (at < 0) { reject(new Error('NOTPDF')); return; }
+        u = u.subarray(at);
+        var bin = '', CH = 0x8000;
+        for (var j = 0; j < u.length; j += CH) bin += String.fromCharCode.apply(null, u.subarray(j, j + CH));
+        resolve(btoa(bin));
+      };
       r.onerror = function () { reject(new Error('Could not read the PDF.')); };
-      r.readAsDataURL(f);
+      r.readAsArrayBuffer(f);
     });
   }
 
@@ -65,6 +73,7 @@
       if (data && data.ok) { say('Sent. Richie will email the Option A PDF to ' + addr + '.', 'ok'); note.value = ''; }
       else say((data && data.error) || 'Could not send. Try again.', 'err');
     } catch (err) {
+      if (err && err.message === 'NOTPDF') { say('Your phone handed over a file that is not a real PDF. Save it to Files first, then choose it from there.', 'err'); return; }
       say('Could not reach Richie. Check your connection and try again.', 'err');
     } finally {
       send.disabled = false;
