@@ -217,11 +217,33 @@
       });
     });
     (model.media || []).forEach(function (m, i) { if (m.caption) m.caption = visit(m.caption, 'media' + i, 'Media'); });
-    (model.terms || []).forEach(function (t, i) { if (!t.raw) t.value = visit(t.value, 'term' + i, t.label || 'Terms'); });
-    (model.extras || []).forEach(function (e, ei) {
-      e.paragraphs = (e.paragraphs || []).map(function (t, i) { return visit(t, 'x' + ei + '.' + i, e.title || 'Notes'); });
+    (model.terms || []).forEach(function (t, i) {
+      if (t.raw) return;
+      if (t.items && t.items.length) {
+        t.items = t.items.map(function (c, ci) { return visit(c, 'term' + i + '.' + ci, t.label || 'Terms'); });
+      } else if (t.value) t.value = visit(t.value, 'term' + i, t.label || 'Terms');
     });
-    if (model.budgetNotes) model.budgetNotes = model.budgetNotes.map(function (t, i) { return visit(t, 'budget' + i, 'Budget notes'); });
+    (model.extras || []).forEach(function (e, ei) {
+      if (e.blocks && e.blocks.length) {
+        e.blocks.forEach(function (b, bi) {
+          if (b.type === 'p' && b.text) b.text = visit(b.text, 'x' + ei + '.' + bi, e.title || 'Notes');
+        });
+        e.paragraphs = e.blocks.filter(function (b) { return b.type === 'p'; }).map(function (b) { return b.text; });
+      } else {
+        e.paragraphs = (e.paragraphs || []).map(function (t, i) { return visit(t, 'x' + ei + '.' + i, e.title || 'Notes'); });
+      }
+    });
+    if (model.budgetBody && model.budgetBody.length) {
+      model.budgetBody.forEach(function (b, bi) {
+        if (b.text) b.text = visit(b.text, 'budget' + bi, 'Budget');
+        (b.items || []).forEach(function (it, ii) {
+          it.text = visit(it.text, 'budget' + bi + '.i' + ii, 'Budget');
+          it.children = (it.children || []).map(function (c, ci) { return visit(c, 'budget' + bi + '.i' + ii + '.c' + ci, 'Budget'); });
+        });
+      });
+    } else if (model.budgetNotes) {
+      model.budgetNotes = model.budgetNotes.map(function (t, i) { return visit(t, 'budget' + i, 'Budget notes'); });
+    }
   }
 
   function allowKeys(keys) {

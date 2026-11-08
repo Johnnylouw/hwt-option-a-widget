@@ -145,6 +145,13 @@
     return card;
   }
 
+  function blockEl(block, paraClass) {
+    if (block.type === 'p') return el('p', paraClass || 'body-p', block.text);
+    var ul = el('ul', 'clean');
+    (block.items || []).forEach(function (item) { ul.appendChild(liEl(item)); });
+    return ul;
+  }
+
   function coverNodes(model) {
     var nodes = [];
     if (model.salutation) {
@@ -153,23 +160,24 @@
       nodes.push(sal);
     }
     model.intro.forEach(function (text) { nodes.push(el('p', 'lede', text)); });
-    model.body.forEach(function (block) {
-      if (block.type === 'p') nodes.push(el('p', 'body-p', block.text));
-      else {
-        var ul = el('ul', 'clean');
-        block.items.forEach(function (item) { ul.appendChild(liEl(item)); });
-        nodes.push(ul);
-      }
-    });
-    if (model.budgetHeading || model.quotation || (model.budgetNotes && model.budgetNotes.length)) {
+    model.body.forEach(function (block) { nodes.push(blockEl(block, 'body-p')); });
+    var budgetBlocks = model.budgetBody || [];
+    var notes = model.budgetNotes || [];
+    var hasBudget = !!(model.budgetHeading || (model.quotation && model.quotation.amount) || budgetBlocks.length || notes.length);
+    if (hasBudget) {
       var budget = el('div', 'budget');
-      var left = el('div');
+      var left = el('div', 'budget-main');
       if (model.budgetHeading) left.appendChild(el('h3', '', model.budgetHeading));
-      (model.budgetNotes || []).forEach(function (text) {
-        left.appendChild(el('p', 'note', text));
-      });
-      budget.appendChild(left);
+      if (budgetBlocks.length) {
+        budgetBlocks.forEach(function (block) { left.appendChild(blockEl(block, 'note')); });
+      } else {
+        notes.forEach(function (text) { left.appendChild(el('p', 'note', text)); });
+      }
+      if (left.childNodes.length) budget.appendChild(left);
+      else budget.classList.add('solo');
       if (model.quotation && model.quotation.amount) budget.appendChild(quoteCard(model));
+      /* A lone total must stay with the paragraph that introduces it. */
+      if (!left.childNodes.length) budget._withPrev = true;
       nodes.push(budget);
     }
     return nodes;
@@ -283,14 +291,41 @@
     return nodes;
   }
 
+  function dataTable(header, nums) {
+    var table = el('table', 'data-table' + ((header || []).length >= 7 ? ' dense' : ''));
+    table.dataset.header = JSON.stringify(header || []);
+    var thead = document.createElement('thead');
+    var hr = document.createElement('tr');
+    (header || []).forEach(function (h, i) {
+      hr.appendChild(el('th', nums && nums.charAt(i) === '1' ? 'num' : '', h));
+    });
+    thead.appendChild(hr);
+    table.appendChild(thead);
+    table.appendChild(document.createElement('tbody'));
+    return table;
+  }
+
   function placeNode(flow, node) {
-    if (node.tagName === 'TR') {
-      var table = flow.querySelector('table.schedule');
-      if (!table) {
-        table = scheduleTable();
+    if (node.tagName === 'TR' && node.dataset.table === 'data') {
+      var tables = flow.querySelectorAll('table.data-table');
+      var table = tables.length ? tables[tables.length - 1] : null;
+      var header = node.dataset.header || '[]';
+      if (!table || node.dataset.restart === '1' || table.dataset.header !== header) {
+        var parsed = [];
+        try { parsed = JSON.parse(header); } catch (err) { parsed = []; }
+        table = dataTable(parsed, node.dataset.nums || '');
         flow.appendChild(table);
       }
       table.querySelector('tbody').appendChild(node);
+      return;
+    }
+    if (node.tagName === 'TR') {
+      var schedule = flow.querySelector('table.schedule');
+      if (!schedule) {
+        schedule = scheduleTable();
+        flow.appendChild(schedule);
+      }
+      schedule.querySelector('tbody').appendChild(node);
       ensureCat(node);
     } else {
       flow.appendChild(node);
@@ -302,8 +337,18 @@
   }
 
   function dropEmptyTable(flow) {
-    var table = flow.querySelector('table.schedule');
-    if (table && !table.querySelector('tbody tr')) table.remove();
+    flow.querySelectorAll('table.schedule, table.data-table').forEach(function (table) {
+      if (!table.querySelector('tbody tr')) table.remove();
+    });
+  }
+
+  function detachKeep(flow) {
+    var carry = [];
+    while (flow.lastElementChild && flow.lastElementChild._keep) {
+      carry.unshift(flow.lastElementChild);
+      detachNode(flow.lastElementChild);
+    }
+    return carry;
   }
 
   function paginate(mount, model, opts, nodes) {
@@ -330,22 +375,22 @@
       placeNode(flow, node);
       if (!overflows(flow)) return;
       detachNode(node);
-      var prev = null;
-      if (node.classList && node.classList.contains('lab-item')) {
-        var last = flow.lastElementChild;
-        if (last && last.classList.contains('lab-code')) {
-          prev = last;
+      var carry = detachKeep(flow);
+      if (node._withPrev && flow.lastElementChild) {
+        var prev = flow.lastElementChild;
+        if (prev.offsetHeight && prev.offsetHeight < flow.clientHeight * 0.7) {
+          carry.unshift(prev);
           detachNode(prev);
         }
       }
       dropEmptyTable(flow);
-      if (!flow.childNodes.length && !prev) {
+      if (!flow.childNodes.length && !carry.length) {
         placeNode(flow, node);
         return;
       }
       sheet = addSheet(true);
       flow = sheet.querySelector('.flow');
-      if (prev) placeNode(flow, prev);
+      carry.forEach(function (c) { placeNode(flow, c); });
       if (node.tagName === 'TR' && node.classList.contains('data')) {
         var td = node.querySelector('td.cat');
         if (td) { td.textContent = ''; td.dataset.filled = ''; }
@@ -377,8 +422,16 @@
       if (term.raw) return el('pre', 'raw', term.value);
       var row = el('div', 'term');
       row.appendChild(el('div', 'term-label', term.label));
-      var value = el('div', 'term-value', term.value);
+      var value = el('div', 'term-value');
       row.dataset.label = term.label;
+      var items = term.items || [];
+      if (items.length > 1) {
+        var ul = el('ul', 'clean term-list');
+        items.forEach(function (item) { ul.appendChild(el('li', '', item)); });
+        value.appendChild(ul);
+      } else {
+        value.textContent = items.length ? items[0] : (term.value || '');
+      }
       row.appendChild(value);
       return row;
     });
@@ -387,8 +440,9 @@
   function labNodes(model) {
     var nodes = [];
     model.labs.forEach(function (group) {
-      if (group.code) nodes.push(el('div', 'lab-code', group.code));
-      else nodes.push(el('div', 'lab-code', 'Sampling list'));
+      var code = el('div', 'lab-code', group.code || 'Sampling list');
+      code._keep = true;
+      nodes.push(code);
       group.items.forEach(function (item) {
         var row = el('div', 'lab-item', item);
         row.dataset.lab = item;
@@ -398,8 +452,107 @@
     return nodes;
   }
 
+  function numericCols(rows, width) {
+    var flags = [];
+    for (var i = 0; i < width; i++) {
+      var n = 0;
+      var d = 0;
+      rows.forEach(function (r) {
+        if (r.summary) return;
+        var c = ((r.cells || [])[i] || '').trim();
+        if (!c) return;
+        d += 1;
+        if (/^[\d,.\s]+$/.test(c)) n += 1;
+      });
+      flags.push(d > 0 && n / d >= 0.6);
+    }
+    return flags;
+  }
+
+  function summaryParts(row) {
+    var joined = row.raw || (row.cells || []).filter(Boolean).join(' ');
+    var m = String(joined).match(/^(.*?\D)\s*(\d[\d,]*\d|\d)\s*$/);
+    if (!m) return { label: joined, amount: '' };
+    return { label: m[1].trim(), amount: m[2] };
+  }
+
+  function tableRowNodes(block) {
+    var header = block.header || [];
+    var rows = block.rows || [];
+    var nums = numericCols(rows, header.length);
+    var numStr = nums.map(function (v) { return v ? '1' : '0'; }).join('');
+    var headerJson = JSON.stringify(header);
+    return rows.map(function (r, idx) {
+      var tr = document.createElement('tr');
+      tr.dataset.table = 'data';
+      tr.dataset.header = headerJson;
+      tr.dataset.nums = numStr;
+      if (idx === 0) tr.dataset.restart = '1';
+      if (r.summary) {
+        tr.className = 'sum';
+        var parts = summaryParts(r);
+        var label = el('td', '', parts.label);
+        label.colSpan = parts.amount && header.length > 1 ? header.length - 1 : header.length;
+        tr.appendChild(label);
+        if (parts.amount && header.length > 1) tr.appendChild(el('td', 'num', parts.amount));
+        return tr;
+      }
+      header.forEach(function (_, i) {
+        var text = (r.cells || [])[i] || '';
+        tr.appendChild(el('td', nums[i] && text ? 'num' : '', text));
+      });
+      return tr;
+    });
+  }
+
   function extraNodes(extra) {
-    return extra.paragraphs.map(function (text) { return el('p', 'extra-p', text); });
+    if (extra.blocks && extra.blocks.length) {
+      var nodes = [];
+      extra.blocks.forEach(function (b) {
+        if (b.type === 'table') nodes.push.apply(nodes, tableRowNodes(b));
+        else nodes.push(el('p', 'extra-p', b.text));
+      });
+      return nodes;
+    }
+    return (extra.paragraphs || []).map(function (text) { return el('p', 'extra-p', text); });
+  }
+
+  function flowHeading(kicker, number, title) {
+    var box = el('div', 'flow-sec');
+    box._keep = true;
+    if (kicker) box.appendChild(el('p', 'sec-kicker', kicker));
+    var h = el('h3', 'flow-sec-title');
+    if (number) h.appendChild(el('span', 'num', number));
+    h.appendChild(document.createTextNode(title || ''));
+    box.appendChild(h);
+    return box;
+  }
+
+  /* Place nodes on an existing sheet. If any of them overflow, put the nodes back and report failure. */
+  function tryAppend(sheet, nodes) {
+    var flow = sheet.querySelector('.flow');
+    var marker = document.createComment('append');
+    flow.appendChild(marker);
+    var ok = true;
+    nodes.forEach(function (node) {
+      if (!ok) return;
+      placeNode(flow, node);
+      if (overflows(flow)) ok = false;
+    });
+    var kids = [].slice.call(flow.childNodes);
+    var start = kids.indexOf(marker);
+    if (!ok) {
+      for (var i = kids.length - 1; i > start; i--) {
+        var node = kids[i];
+        if (node.tagName === 'TABLE') {
+          [].slice.call(node.querySelectorAll('tbody tr')).forEach(function (tr) { detachNode(tr); });
+        }
+        detachNode(node);
+      }
+    }
+    if (marker.parentNode) marker.parentNode.removeChild(marker);
+    dropEmptyTable(flow);
+    return ok;
   }
 
   function sectionSpec(model, kind, index) {
@@ -444,26 +597,49 @@
     sheets.push.apply(sheets, cover);
     var sectionIndex = 1;
     var extras = model.extras.slice();
+    var extraBuf = [];
+    function takeExtra(token) {
+      var title = token.slice(6);
+      var extra = extras.shift() || { title: title, paragraphs: [] };
+      var number = String(sectionIndex).padStart(2, '0');
+      sectionIndex += 1;
+      return { title: extra.title || title, number: number, nodes: extraNodes(extra) };
+    }
+    function paginateExtra(entry) {
+      if (!entry.nodes.length) return;
+      var built = paginate(mount, model, {
+        kicker: 'Notes',
+        number: entry.number,
+        title: entry.title
+      }, entry.nodes);
+      sheets.push.apply(sheets, built);
+    }
+    /* Short note sections share a page when the next one fits, so a table is not followed by a blank region. */
+    function flushExtras() {
+      if (!extraBuf.length) return;
+      paginateExtra(extraBuf[0]);
+      for (var i = 1; i < extraBuf.length; i++) {
+        var entry = extraBuf[i];
+        var pack = [flowHeading('Notes', entry.number, entry.title)].concat(entry.nodes);
+        var host = sheets[sheets.length - 1];
+        if (host && entry.nodes.length && tryAppend(host, pack)) continue;
+        paginateExtra(entry);
+      }
+      extraBuf = [];
+    }
     model.flow.forEach(function (token) {
       if (token.indexOf('extra:') === 0) {
-        var title = token.slice(6);
-        var extra = extras.shift() || { title: title, paragraphs: [] };
-        var nodes = extraNodes(extra);
-        var built = paginate(mount, model, {
-          kicker: 'Notes',
-          number: String(sectionIndex).padStart(2, '0'),
-          title: extra.title || title
-        }, nodes);
-        if (built.length) sectionIndex += 1;
-        sheets.push.apply(sheets, built);
+        extraBuf.push(takeExtra(token));
         return;
       }
+      flushExtras();
       var spec = sectionSpec(model, token, sectionIndex);
       if (!spec || !spec.nodes.length) return;
       var built = paginate(mount, model, spec, spec.nodes);
       sheets.push.apply(sheets, built);
       sectionIndex += 1;
     });
+    flushExtras();
     var total = sheets.length;
     sheets.forEach(function (sheet, i) {
       var slot = sheet.querySelector('.page-no');

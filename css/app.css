@@ -362,16 +362,19 @@ ul.clean ul li::before {
   align-items: flex-end;
   gap: 18px;
   margin-top: 8px;
-  padding-top: 12px;
+  padding-top: 10px;
   border-top: 1px solid var(--sand);
 }
+.budget.solo { justify-content: flex-end; }
+.budget-main { flex: 1; min-width: 0; }
+.budget-main ul.clean { margin-bottom: 2px; }
 .budget h3 {
   margin: 0 0 4px;
   color: var(--navy);
   font-size: 13.5px;
   letter-spacing: 0.04em;
 }
-.budget .note { margin: 0; font-size: 13px; color: #2c3338; }
+.budget .note { margin: 0 0 4px; font-size: 13px; color: #2c3338; }
 
 .quote-card {
   flex: 0 0 230px;
@@ -463,6 +466,58 @@ table.schedule tr.grand td {
   padding: 8px 6px;
 }
 
+table.data-table {
+  width: 100%;
+  border-collapse: collapse;
+  background: #FBF8F2;
+  color: #243044;
+  font-size: 11px;
+  margin: 0 0 6px;
+}
+table.data-table th {
+  background: #2A3F5F;
+  color: #FBF8F2;
+  font-size: 9px;
+  letter-spacing: 0.05em;
+  text-align: left;
+  font-weight: 700;
+  padding: 6px 6px;
+  border-bottom: 3px solid #C4A574;
+}
+table.data-table th.num, table.data-table td.num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+table.data-table td {
+  padding: 4px 6px;
+  border-bottom: 1px solid #e4d8c6;
+  vertical-align: top;
+  line-height: 1.3;
+}
+table.data-table tbody tr:nth-child(even) td { background: #f3efe6; }
+table.data-table tr.sum td {
+  background: #2A3F5F !important;
+  color: #FBF8F2;
+  font-weight: 700;
+  border-bottom: 3px solid #C4A574;
+}
+table.data-table tr.sum td.num { color: #FBF8F2; }
+table.data-table.dense { font-size: 9.5px; }
+table.data-table.dense th, table.data-table.dense td { padding: 3px 4px; }
+
+.flow-sec { margin: 14px 0 6px; }
+.flow-sec .sec-kicker { margin: 0; }
+.flow-sec-title {
+  margin: 1px 0 0;
+  font-size: 22px;
+  line-height: 1.15;
+  color: var(--navy);
+  font-weight: 700;
+  border-bottom: 3px solid var(--sand);
+  padding-bottom: 4px;
+}
+
 .term {
   display: flex;
   border-left: 3px solid var(--sand);
@@ -485,6 +540,8 @@ table.schedule tr.grand td {
   line-height: 1.4;
   white-space: pre-wrap;
 }
+.term-value ul.term-list { margin: 0; }
+.term-value ul.term-list > li { font-size: 12.5px; line-height: 1.35; margin: 2px 0; }
 
 .lab-code, .lab-item {
   border-left: 1px solid #e6dccb;

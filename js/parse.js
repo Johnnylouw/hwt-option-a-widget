@@ -221,19 +221,25 @@
     return { eyebrow: '', main: head, tail: tail };
   }
 
-  function isBudgetHeading(text) {
-    if (!isUpper(text) || text.length > 90) return false;
-    const u = text.toUpperCase();
-    if (/\b(BUDGET|ANNUAL FEE)\b/.test(u)) return true;
-    if (/^QUOTATION\b/.test(u) && text.length < 48) return true;
-    return false;
+  function isBudgetHeading(line) {
+    const text = cleanJoin(typeof line === 'string' ? line : (line && line.text));
+    if (!text || text.length > 80 || /[.!?]$/.test(text)) return false;
+    const upper = isUpper(text);
+    if (upper && /\b(BUDGET|ANNUAL FEE)\b/.test(text)) return true;
+    if (upper && /^QUOTATION\b/.test(text) && text.length < 40 && !/\d{3,}/.test(text)) return true;
+    if (typeof line === 'string' || !line) return false;
+    const words = text.split(/\s+/);
+    if (words.length > 6 || /\d/.test(text)) return false;
+    if (!/\b(budget|annual fee)\b/i.test(text)) return false;
+    if (line.bold) return true;
+    return (line.fontSize || 0) >= 10;
   }
 
   function pickTitles(lines) {
+    const budget = lines.find(function (l) { return isBudgetHeading(l); }) || null;
     const upper = lines.filter(function (l) {
-      return isUpper(l.text) && l.text.length > 12 && !knownHeading(l.text);
+      return l !== budget && isUpper(l.text) && l.text.length > 12 && !knownHeading(l.text);
     });
-    const budget = upper.find(function (l) { return isBudgetHeading(l.text); }) || null;
     const rest = upper.filter(function (l) { return l !== budget; });
     rest.sort(function (a, b) { return b.text.length - a.text.length; });
     const titleLine = rest[0] || null;
@@ -306,11 +312,11 @@
     return Math.max.apply(null, line.items.map(function (it) { return it.x + (it.w || 0); }));
   }
 
-  /* Sentence case + terminal full stop for list items. */
+  /* Sentence case + terminal full stop for list items. Leave a leading pH / kWh token alone. */
   function tidyItem(text) {
     let t = cleanJoin(String(text).replace(/^_+|_+$/g, ''));
     if (!t) return t;
-    t = t.charAt(0).toUpperCase() + t.slice(1);
+    if (!/^[a-z][A-Z]/.test(t)) t = t.charAt(0).toUpperCase() + t.slice(1);
     if (!/[.!?:;)]$/.test(t)) t += '.';
     else if (/[;,]$/.test(t)) t = t.slice(0, -1) + '.';
     return t;
@@ -360,39 +366,36 @@
     return out;
   }
 
-  function clusterX(xs) {
-    const sorted = xs.slice().sort(function (a, b) { return a - b; });
-    const groups = [];
-    sorted.forEach(function (x) {
-      const g = groups[groups.length - 1];
-      if (!g || x - g.max > 8) groups.push({ x: x, max: x, n: 1, sum: x });
-      else {
-        g.n += 1;
-        g.sum += x;
-        g.max = x;
-        g.x = g.sum / g.n;
-      }
-    });
-    return groups;
+  function markerOnly(str) {
+    const t = String(str || '').trim();
+    if (!t) return true;
+    if (hasMarker(t) && !stripBullet(t)) return true;
+    return /^(?:[•·▪‣◦●○■□►▸➢✓\uf0b7\uf0a7]|[-–—*]|\(?(?:\d{1,2}|[a-zA-Z]|[ivxIVX]{1,4})[.)])$/.test(t);
+  }
+
+  /* Left edge of the words, skipping a leading "1." / bullet token. */
+  function contentX(line) {
+    const items = (line.items || []).slice().sort(function (a, b) { return a.x - b.x; });
+    for (let i = 0; i < items.length; i++) {
+      if (markerOnly(items[i].str)) continue;
+      return items[i].x;
+    }
+    return line.x || 0;
+  }
+
+  /* A label on the left and a figure on the right (quotation total), not a bullet. */
+  function isSplitRow(line) {
+    const items = (line.items || []).slice().sort(function (a, b) { return a.x - b.x; });
+    for (let i = 1; i < items.length; i++) {
+      const prev = items[i - 1];
+      const gap = items[i].x - (prev.x + (prev.w || 0));
+      if (gap > 36 && /\d/.test(items[i].str || '') && /[A-Za-z]/.test(prev.str || '')) return true;
+    }
+    return false;
   }
 
   function buildBlocks(lines) {
     if (!lines.length) return [];
-    const clusters = clusterX(lines.map(function (l) { return l.x; }));
-    function kind(line) {
-      if (clusters.length < 2) return 'p';
-      let best = 0;
-      let dist = Infinity;
-      clusters.forEach(function (c, i) {
-        const d = Math.abs(line.x - c.x);
-        if (d < dist) { dist = d; best = i; }
-      });
-      if (clusters.length === 2) return best === 0 ? 'p' : 'li';
-      if (best === 0) return 'p';
-      if (best === clusters.length - 1) return 'nested';
-      return 'li';
-    }
-    const kinds = lines.map(kind);
     const blocks = [];
     let list = null;
     function close() {
@@ -401,69 +404,70 @@
         list = null;
       }
     }
-    function tight(i) {
+    function tight(i, limit) {
       if (i === 0) return false;
       const dy = lines[i].base - lines[i - 1].base;
       const size = lines[i].fontSize || 9;
-      return dy < Math.min(16, Math.max(12, size * 1.5));
+      const cap = limit == null ? Math.min(16, Math.max(12, size * 1.5)) : limit;
+      return dy < cap;
     }
     const rights = lines.map(lineRight).filter(function (r) { return r != null; });
     const maxRight = rights.length ? Math.max.apply(null, rights) : null;
+    const leftEdge = Math.min.apply(null, lines.map(function (l) { return l.x; }));
     function wrapped(j) {
       const r = lineRight(lines[j]);
       if (r == null || maxRight == null) return true;
-      const left = Math.min.apply(null, lines.map(function (l) { return l.x; }));
-      return (r - left) >= 0.82 * (maxRight - left);
+      return (r - leftEdge) >= 0.82 * (maxRight - leftEdge);
     }
-    /* A wrapped line runs to (near) the right margin; a short line ended its item. */
-    function continues(i, text) {
-      if (i === 0) return false;
-      if (hasMarker(lines[i].text)) return false;
-      if (!tight(i)) return false;
-      if (!/^[a-z(]/.test(text)) return false;
-      const prev = lines[i - 1];
-      if (/[.!?;:]$/.test(prev.text.trim())) return false;
-      const r = lineRight(prev);
-      if (r == null || maxRight == null) return true;
-      const left = Math.min.apply(null, lines.map(function (l) { return l.x; }));
-      return (r - left) >= 0.82 * (maxRight - left);
+    function appendWrap(parent, text, x) {
+      if (parent.children.length && parent.childX != null && x >= parent.childX - 4) {
+        const ch = parent.children;
+        ch[ch.length - 1] += ' ' + text;
+      } else parent.text += ' ' + text;
     }
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i];
-      const k = kinds[i];
-      if (k === 'nested') {
-        const text = stripBullet(line.text);
+      const raw = line.text.trim();
+      const marked = hasMarker(raw);
+      const text = stripBullet(raw);
+      const x = contentX(line);
+      const parent = list && list.length ? list[list.length - 1] : null;
+      const prevEnded = i > 0 && /[.!?;:]$/.test(lines[i - 1].text.trim());
+      const lower = /^[a-z(]/.test(text);
+
+      if (parent && !isSplitRow(line)) {
+        const near = x < parent.contentX + 14;
+        const childIndent = x >= parent.contentX + 14 && x < parent.contentX + 96;
+        if (!marked && lower && near && tight(i) && !prevEnded) {
+          appendWrap(parent, text, x);
+          continue;
+        }
+        if (!marked && lower && wrapped(i - 1) && tight(i) && !prevEnded && !childIndent) {
+          appendWrap(parent, text, x);
+          continue;
+        }
+        if (childIndent && tight(i, 22)) {
+          if (parent.children.length && lower && !prevEnded && parent.childX != null && Math.abs(x - parent.childX) <= 8 && wrapped(i - 1)) {
+            parent.children[parent.children.length - 1] += ' ' + text;
+          } else if (!marked || x >= parent.contentX + 14) {
+            parent.children.push(text);
+            parent.childX = x;
+          }
+          continue;
+        }
+      }
+
+      if (marked && !isSplitRow(line)) {
         if (!list) list = [];
-        if (!list.length) list.push({ text: text, children: [] });
-        else if (continues(i, text) && list[list.length - 1].children.length) {
-          const ch = list[list.length - 1].children;
-          ch[ch.length - 1] += ' ' + text;
-        } else list[list.length - 1].children.push(text);
+        list.push({ text: text, children: [], contentX: x });
         continue;
       }
-      if (k === 'li') {
-        const text = stripBullet(line.text);
-        if (!list) list = [];
-        if (list.length && continues(i, text)) list[list.length - 1].text += ' ' + text;
-        else list.push({ text: text, children: [] });
+      if (isSplitRow(line)) {
+        close();
+        blocks.push({ type: 'p', text: raw });
         continue;
       }
-      if (hasMarker(line.text)) {
-        if (!list) list = [];
-        list.push({ text: stripBullet(line.text), children: [] });
-        continue;
-      }
-      const text = line.text.trim();
-      const words = text.split(/\s+/).length;
-      const short = words <= 6 && !/[.;:!?]$/.test(text);
-      const next = kinds[i + 1];
-      const prev = i > 0 ? kinds[i - 1] : null;
-      if (short && next && next !== 'p' && prev && prev !== 'p') {
-        if (!list) list = [];
-        list.push({ text: text, children: [] });
-        continue;
-      }
-      if (list && continues(i, text)) {
+      if (list && lower && tight(i) && !prevEnded) {
         list[list.length - 1].text += ' ' + text;
         continue;
       }
@@ -509,11 +513,13 @@
     const proposalIdx = titles.proposalLine ? lines.indexOf(titles.proposalLine) : -1;
     const budgetIdx = titles.budgetLine ? lines.indexOf(titles.budgetLine) : -1;
     const salIdx = sal ? lines.indexOf(sal) : -1;
+    const quotation = extractQuotation(lines);
 
     const intro = [];
     const bodyLines = [];
     lines.forEach(function (line, idx) {
       if (line === titles.titleLine || line === titles.proposalLine || line === titles.budgetLine || line === sal) return;
+      if (quotation && line === quotation.line) return;
       if (/^(To|From|Email|Date)\b/.test(line.text) && line.y < 270) return;
       if (salIdx >= 0 && idx > salIdx && (titleIdx < 0 || idx < titleIdx) && idx < (budgetIdx < 0 ? 9999 : budgetIdx)) {
         intro.push(line.text);
@@ -535,7 +541,6 @@
       else introParas.push(text);
     });
 
-    const quotation = extractQuotation(lines);
     const noteLines = [];
     if (budgetIdx >= 0) {
       lines.slice(budgetIdx + 1).forEach(function (line) {
@@ -544,12 +549,15 @@
         noteLines.push(line);
       });
     }
+    const budgetBody = noteLines.length ? buildBlocks(noteLines) : [];
     const budgetNotes = [];
-    noteLines.forEach(function (line, i) {
-      const dy = i > 0 ? line.base - noteLines[i - 1].base : 99;
-      if (budgetNotes.length && dy < 14) budgetNotes[budgetNotes.length - 1] += ' ' + line.text;
-      else budgetNotes.push(line.text);
-    });
+    if (!budgetBody.length) {
+      noteLines.forEach(function (line, i) {
+        const dy = i > 0 ? line.base - noteLines[i - 1].base : 99;
+        if (budgetNotes.length && dy < 14) budgetNotes[budgetNotes.length - 1] += ' ' + line.text;
+        else budgetNotes.push(line.text);
+      });
+    }
 
     if (!meta.to || !meta.from) {
       notes.push({
@@ -578,6 +586,7 @@
       body: buildBlocks(bodyLines),
       budgetHeading: titles.budgetLine ? titles.budgetLine.text : '',
       budgetNotes: budgetNotes,
+      budgetBody: budgetBody,
       quotation: quotation
     };
   }
@@ -775,6 +784,31 @@
     return true;
   }
 
+  /* A following line continues the previous clause only when it is a wrap, not a new point.
+     A new capitalised line is its own clause unless the previous line stops on a hanging word. */
+  function clauseContinues(prevLine, line) {
+    if (!prevLine) return false;
+    const prev = prevLine.text.trim();
+    const text = line.text.trim();
+    if (!prev || !text) return false;
+    if (/[.!?;:]$/.test(prev)) return false;
+    if (/^[a-z(]/.test(text) || /^\d/.test(text)) return true;
+    if (/\b(the|a|an|and|or|of|to|for|with|in|on|by|from|as|at|into|over|per|via|that|which|be|been|is|are|was|were)\s*$/i.test(prev)) return true;
+    return false;
+  }
+
+  function clauseItems(lines) {
+    const parts = [];
+    const group = lines || [];
+    group.forEach(function (line, i) {
+      const text = String(line.text || '').trim();
+      if (!text) return;
+      if (parts.length && clauseContinues(group[i - 1], line)) parts[parts.length - 1] += ' ' + text;
+      else parts.push(text);
+    });
+    return parts;
+  }
+
   function parseTerms(sections, notes) {
     const lines = [];
     sections.forEach(function (s) {
@@ -783,19 +817,33 @@
     if (!sections.some(function (s) { return s.kind === 'terms'; })) return [];
     const terms = [];
     let current = null;
+    let bucket = [];
+    function flushValue() {
+      if (!current) return;
+      const items = clauseItems(bucket);
+      bucket = [];
+      if (items.length > 1) {
+        current.items = items;
+        current.value = '';
+      } else {
+        current.items = [];
+        current.value = items[0] || '';
+      }
+    }
     lines.forEach(function (line) {
       if (isTermLabel(line.text)) {
-        current = { label: line.text.trim(), value: '' };
+        flushValue();
+        current = { label: line.text.trim(), value: '', items: [] };
         terms.push(current);
         return;
       }
       if (!current) {
-        current = { label: '', value: line.text.trim() };
+        current = { label: '', value: '', items: [] };
         terms.push(current);
-        return;
       }
-      current.value = cleanJoin((current.value ? current.value + ' ' : '') + line.text);
+      bucket.push(line);
     });
+    flushValue();
     const labelled = terms.filter(function (t) { return t.label; });
     if (!labelled.length && lines.length) {
       notes.push({
@@ -852,17 +900,153 @@
     return groups;
   }
 
-  function parseExtras(sections) {
-    return sections.filter(function (s) { return s.kind === 'extra'; }).map(function (s) {
+  function lineCells(line) {
+    const items = (line.items || []).slice().sort(function (a, b) { return a.x - b.x; });
+    if (!items.length) return [{ x: line.x || 0, text: cleanJoin(line.text || '') }];
+    /* Column gutters in these schedules are often only ~10pt; word spaces are ~2pt. */
+    const gapMin = Math.max(8, (line.fontSize || 8) * 1.05);
+    const cells = [];
+    let cur = null;
+    items.forEach(function (it) {
+      const str = it.str || '';
+      if (!String(str).trim()) return;
+      if (!cur) {
+        cur = { x: it.x, items: [it] };
+        cells.push(cur);
+        return;
+      }
+      const prev = cur.items[cur.items.length - 1];
+      const gap = it.x - (prev.x + (prev.w || 0));
+      if (gap > gapMin) {
+        cur = { x: it.x, items: [it] };
+        cells.push(cur);
+      } else cur.items.push(it);
+    });
+    cells.forEach(function (c) { c.text = joinParts(c.items); });
+    return cells.filter(function (c) { return c.text; });
+  }
+
+  function looksLikeHeader(cells) {
+    if (!cells || cells.length < 3) return false;
+    const texts = cells.map(function (c) { return cleanJoin(c.text); });
+    if (texts.join(' ').length > 90) return false;
+    let upper = 0;
+    for (let i = 0; i < texts.length; i++) {
+      const t = texts[i];
+      if (!t || t.length > 24 || wordCount(t) > 3) return false;
+      if (/\d/.test(t)) return false;
+      const letters = t.replace(/[^A-Za-z]/g, '');
+      if (letters.length < 2) return false;
+      if (letters === letters.toUpperCase()) upper += 1;
+    }
+    return upper >= Math.ceil(texts.length * 0.75);
+  }
+
+  function nearestCol(x, anchors) {
+    let best = 0;
+    let dist = Infinity;
+    for (let i = 0; i < anchors.length; i++) {
+      const d = Math.abs(x - anchors[i]);
+      if (d < dist) { dist = d; best = i; }
+    }
+    return { col: best, dist: dist };
+  }
+
+  function isSummaryText(text) {
+    return /sub-?\s*total|grand\s+total/i.test(text) && /\d/.test(text);
+  }
+
+  function rowLooksTabular(cells, anchors) {
+    if (!cells.length) return false;
+    const blob = cells.map(function (c) { return c.text; }).join(' ');
+    if (isSummaryText(blob)) return true;
+    if (cells.length === 1) {
+      const hit = nearestCol(cells[0].x, anchors);
+      if (hit.dist > 18) return false;
+      if (wordCount(cells[0].text) > 8) return false;
+      return true;
+    }
+    let hits = 0;
+    cells.forEach(function (c) {
+      if (nearestCol(c.x, anchors).dist <= 22) hits += 1;
+    });
+    return hits >= 2;
+  }
+
+  function assignRow(cells, anchors) {
+    const row = anchors.map(function () { return ''; });
+    cells.forEach(function (c) {
+      const hit = nearestCol(c.x, anchors);
+      row[hit.col] = row[hit.col] ? cleanJoin(row[hit.col] + ' ' + c.text) : c.text;
+    });
+    return row;
+  }
+
+  function readTable(lines, start) {
+    const headerCells = lineCells(lines[start]);
+    if (!looksLikeHeader(headerCells)) return null;
+    const anchors = headerCells.map(function (c) { return c.x; });
+    const header = headerCells.map(function (c) { return c.text; });
+    const rows = [];
+    let j = start + 1;
+    for (; j < lines.length; j++) {
+      const cells = lineCells(lines[j]);
+      const blob = cleanJoin(cells.map(function (c) { return c.text; }).join(' '));
+      if (!blob) continue;
+      if (looksLikeHeader(cells) && rows.length) break;
+      if (!rowLooksTabular(cells, anchors)) break;
+      if (cells.length === 1 && rows.length && !isSummaryText(blob) && !/^[A-Z][A-Z0-9 /-]{2,}$/.test(blob)) {
+        const hit = nearestCol(cells[0].x, anchors);
+        const prev = rows[rows.length - 1];
+        if (!prev.summary && hit.dist <= 18 && prev.cells[hit.col] && wordCount(blob) <= 8 && /^[a-z(]/.test(blob)) {
+          prev.cells[hit.col] = cleanJoin(prev.cells[hit.col] + ' ' + blob);
+          prev.raw = cleanJoin(prev.raw + ' ' + blob);
+          continue;
+        }
+      }
+      rows.push({ cells: assignRow(cells, anchors), summary: isSummaryText(blob), raw: blob });
+    }
+    if (rows.length < 2) return null;
+    return { next: j, block: { type: 'table', header: header, rows: rows } };
+  }
+
+  function segmentLines(lines) {
+    const blocks = [];
+    const prose = [];
+    function flushProse() {
+      if (!prose.length) return;
       const paragraphs = [];
-      s.lines.forEach(function (line, i) {
-        const dy = i > 0 ? line.base - s.lines[i - 1].base : 99;
+      prose.forEach(function (line, i) {
+        const dy = i > 0 ? line.base - prose[i - 1].base : 99;
         if (paragraphs.length && dy < 14 && !/^[A-Z][A-Z0-9 /-]{3,}$/.test(line.text)) {
           paragraphs[paragraphs.length - 1] += ' ' + line.text;
         } else paragraphs.push(line.text);
       });
-      return { title: s.title || 'NOTES', paragraphs: paragraphs };
-    }).filter(function (e) { return e.paragraphs.length; });
+      paragraphs.forEach(function (text) { if (cleanJoin(text)) blocks.push({ type: 'p', text: text }); });
+      prose.length = 0;
+    }
+    let i = 0;
+    while (i < lines.length) {
+      const table = readTable(lines, i);
+      if (table) {
+        flushProse();
+        blocks.push(table.block);
+        i = table.next;
+        continue;
+      }
+      prose.push(lines[i]);
+      i += 1;
+    }
+    flushProse();
+    return blocks;
+  }
+
+  function parseExtras(sections) {
+    return sections.filter(function (s) { return s.kind === 'extra'; }).map(function (s) {
+      const blocks = segmentLines(s.lines);
+      const paragraphs = blocks.filter(function (b) { return b.type === 'p'; }).map(function (b) { return b.text; });
+      return { title: s.title || 'NOTES', paragraphs: paragraphs, blocks: blocks };
+    }).filter(function (e) { return e.blocks.length; });
   }
 
   function pairMedia(sections, notes) {
@@ -1046,6 +1230,7 @@
       body: letter.body,
       budgetHeading: letter.budgetHeading,
       budgetNotes: letter.budgetNotes,
+      budgetBody: letter.budgetBody || [],
       quotation: quotation,
       currencyNote: currencyNote,
       vatNote: vatNote,
@@ -1062,5 +1247,5 @@
   }
 
   window.HWTParse = { parseDocument: parseDocument, splitTitle: splitTitle,
-    _test: { buildBlocks: buildBlocks, splitLong: splitLong, tidyItem: tidyItem, stripBullet: stripBullet } };
+    _test: { buildBlocks: buildBlocks, splitLong: splitLong, tidyItem: tidyItem, stripBullet: stripBullet, clauseItems: clauseItems, segmentLines: segmentLines } };
 })();
