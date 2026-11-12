@@ -92,6 +92,69 @@
     return unique;
   }
 
+  /* Small filled shapes (vector bullets). Word/LibreOffice exports often draw list bullets
+     as paths instead of text, so the text layer alone loses every list marker. */
+  async function vectorMarks(page) {
+    var viewport = page.getViewport({ scale: 1 });
+    var opList = await page.getOperatorList();
+    var OPS = pdfjsLib.OPS;
+    var transform = [1, 0, 0, 1, 0, 0];
+    var stack = [];
+    var marks = [];
+    var counts = {};
+    counts[OPS.moveTo] = 2; counts[OPS.lineTo] = 2; counts[OPS.curveTo] = 6;
+    counts[OPS.curveTo2] = 4; counts[OPS.curveTo3] = 4; counts[OPS.closePath] = 0; counts[OPS.rectangle] = 4;
+    function push(box) {
+      if (!box) return;
+      var a = apply(transform, box[0], box[1]);
+      var b = apply(transform, box[2], box[3]);
+      var x0 = Math.min(a[0], b[0]), x1 = Math.max(a[0], b[0]);
+      var y0 = Math.min(a[1], b[1]), y1 = Math.max(a[1], b[1]);
+      var w = x1 - x0, h = y1 - y0;
+      if (w < 1.2 || h < 1.2 || w > 8.5 || h > 8.5) return;
+      if (Math.max(w, h) / Math.min(w, h) > 3) return;
+      marks.push({ x: x0, y: viewport.height - y1, w: w, h: h });
+    }
+    for (var i = 0; i < opList.fnArray.length; i++) {
+      var fn = opList.fnArray[i];
+      var args = opList.argsArray[i] || [];
+      if (fn === OPS.save) stack.push(transform.slice());
+      else if (fn === OPS.restore) transform = stack.pop() || [1, 0, 0, 1, 0, 0];
+      else if (fn === OPS.transform) transform = mul(transform, args);
+      else if (fn === OPS.paintFormXObjectBegin) {
+        stack.push(transform.slice());
+        if (args[0] && args[0].length === 6) transform = mul(transform, args[0]);
+      } else if (fn === OPS.paintFormXObjectEnd) transform = stack.pop() || [1, 0, 0, 1, 0, 0];
+      else if (fn === OPS.constructPath) {
+        var ops = args[0] || [];
+        var co = args[1] || [];
+        var k = 0;
+        var box = null;
+        for (var j = 0; j < ops.length; j++) {
+          var op = ops[j];
+          var n = counts[op];
+          if (n == null) { box = null; break; }
+          if (op === OPS.rectangle) {
+            push(box); box = null;
+            push([co[k], co[k + 1], co[k] + co[k + 2], co[k + 1] + co[k + 3]]);
+          } else if (op === OPS.moveTo) {
+            push(box);
+            box = [co[k], co[k + 1], co[k], co[k + 1]];
+          } else {
+            for (var q = 0; q < n; q += 2) {
+              if (!box) box = [co[k + q], co[k + q + 1], co[k + q], co[k + q + 1]];
+              box[0] = Math.min(box[0], co[k + q]); box[1] = Math.min(box[1], co[k + q + 1]);
+              box[2] = Math.max(box[2], co[k + q]); box[3] = Math.max(box[3], co[k + q + 1]);
+            }
+          }
+          k += n;
+        }
+        push(box);
+      }
+    }
+    return marks;
+  }
+
   function cropRect(canvas, rect, scale) {
     var sx = Math.max(0, Math.floor(rect.x * scale));
     var sy = Math.max(0, Math.floor(rect.y * scale));
@@ -262,12 +325,16 @@
       });
     }
 
+    var marks = [];
+    try { marks = await vectorMarks(page); } catch (err) { marks = []; }
+
     return {
       pageNumber: pageNumber,
       width: viewport.width,
       height: viewport.height,
       items: items,
-      images: images
+      images: images,
+      marks: marks
     };
   }
 

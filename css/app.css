@@ -636,3 +636,45 @@ pre.raw {
   }
   @page { size: A4; margin: 0; }
 }
+
+/* ---- Hero cover, letter sections, numbered steps (Option A reference layout) ---- */
+.hero { margin: 18px 0 14px; text-align: center; }
+.hero img { display: block; margin: 0 auto; background: transparent; border-radius: 4px; }
+.tiles { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-top: 6px; }
+.tile { background: var(--cream-deep); border-top: 3px solid var(--sand); border-radius: 2px; padding: 8px 10px 9px; min-width: 0; }
+.tile .tl { font-size: 9.5px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: var(--sand-ink); }
+.tile .tv { margin-top: 4px; font-size: 13.5px; font-weight: 700; color: var(--navy); line-height: 1.25; overflow-wrap: anywhere; }
+.tile .ts { font-size: 10.5px; color: #5c6570; overflow-wrap: anywhere; }
+.facts { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 8px; margin-top: 10px; }
+.fact { color: white; text-align: center; padding: 12px 10px; border-radius: 3px; background: var(--navy); }
+.fact.f1 { background: #3f6b86; }
+.fact.f2 { background: var(--navy); }
+.fact.f3 { background: #6f7f3f; }
+.fact .fv { font-size: 19px; font-weight: 700; line-height: 1.15; }
+.fact .fl { margin-top: 3px; font-size: 10.5px; color: rgba(255, 255, 255, 0.85); }
+
+ol.steps { list-style: none; margin: 4px 0 10px; padding: 0; border-top: 1px solid #e4d8c6; }
+ol.steps > li { display: flex; align-items: stretch; border-bottom: 1px solid #e4d8c6; background: #fffdf8; margin: 0; padding: 0; }
+ol.steps > li::before { content: none; }
+.step-n { flex: 0 0 34px; display: flex; align-items: center; justify-content: center; background: var(--navy); color: white; font-weight: 700; font-size: 14px; }
+ol.steps > li:nth-child(even) .step-n { background: #3f6b86; }
+.step-b { padding: 6px 10px 7px; min-width: 0; }
+.step-t { font-size: 13px; font-weight: 600; color: var(--navy); line-height: 1.35; }
+ul.step-sub { list-style: none; margin: 2px 0 0; padding: 0; }
+ul.step-sub li { position: relative; padding-left: 14px; margin: 1px 0; font-size: 12px; color: #2c3338; }
+ul.step-sub li::before { content: "\203A"; position: absolute; left: 3px; top: -1px; color: var(--sand-ink); font-weight: 700; }
+
+ol.nums { margin: 2px 0 8px; padding-left: 20px; }
+ol.nums > li { margin: 3px 0; padding-left: 2px; }
+ol.nums > li::marker { color: var(--sand-ink); font-weight: 700; }
+.budget.open { border-top: 0; padding-top: 0; align-items: center; }
+.budget.open .quote-card { flex-basis: 220px; padding: 22px 14px 18px; text-align: center; }
+.flow-sec-title .num { margin-right: 8px; }
+.flow p.lead-in { font-weight: 700; color: var(--navy); margin: 6px 0 2px; }
+/* Denser schedule rows so a typical 30-40 line schedule stays on one page. */
+table.schedule td { padding: 4px 6px; line-height: 1.25; }
+table.schedule tr.grand td { padding: 6px 6px; }
+.extra-p.callout { margin-top: 10px; background: var(--cream-deep); border-left: 4px solid var(--sand); padding: 8px 12px; font-weight: 700; color: var(--navy); }
+ol.nums ul { list-style: none; margin: 1px 0 2px; padding-left: 4px; }
+ol.nums ul li { position: relative; padding-left: 14px; margin: 1px 0; }
+ol.nums ul li::before { content: "\203A"; position: absolute; left: 3px; top: -1px; color: var(--sand-ink); font-weight: 700; }

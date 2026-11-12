@@ -96,6 +96,35 @@
     return true;
   }
 
+  /* A small drawn shape just left of a line's first word is that line's list marker.
+     Turn it into a bullet token so the normal list logic (nesting by indent) applies. */
+  function attachVectorBullets(lines, marks) {
+    if (!marks.length) return;
+    lines.forEach(function (line) {
+      if (!line.items || !line.items.length) return;
+      const first = line.items[0];
+      const top = line.base - (line.fontSize || 8) * 1.05;
+      const hit = marks.find(function (m) {
+        const right = m.x + m.w;
+        const gap = first.x - right;
+        if (gap < 0.5 || gap > 22) return false;
+        const cy = m.y + m.h / 2;
+        if (cy < top - 1 || cy > line.base + 1.5) return false;
+        if (m.h > (line.fontSize || 8) * 1.1) return false;
+        return true;
+      });
+      if (!hit) return;
+      if (hasMarker(line.text)) return;
+      line.items.unshift({
+        str: '\u2022', x: hit.x, y: hit.y, base: line.base, w: hit.w, h: hit.h,
+        fontSize: line.fontSize, fontName: '', bold: false, pageNumber: line.pageNumber, vector: true
+      });
+      line.x = hit.x;
+      line.text = '\u2022 ' + line.text;
+      line.vbullet = true;
+    });
+  }
+
   function prepare(page, notes) {
     const items = (page.items || []).map(function (it) {
       return Object.assign({ pageNumber: page.pageNumber }, it);
@@ -116,6 +145,7 @@
       return l.y < 280 && (l.text === 'To' || /^To\b/.test(l.text) || /^Dear\b/.test(l.text));
     });
     if (anchor) lines = lines.filter(function (l) { return l.y >= anchor.y - 4; });
+    attachVectorBullets(lines, page.marks || []);
 
     const images = (page.images || []).filter(function (im) {
       if (im.w < 70 || im.h < 70) return false;
@@ -231,6 +261,8 @@
     const words = text.split(/\s+/);
     if (words.length > 6 || /\d/.test(text)) return false;
     if (!/\b(budget|annual fee)\b/i.test(text)) return false;
+    /* A line that is only the heading words ("Budget proposal") is the heading even in body type. */
+    if (/^(budget(\s+(proposal|quotation|estimate|price))?|annual fee)\s*:?$/i.test(text)) return true;
     if (line.bold) return true;
     return (line.fontSize || 0) >= 10;
   }
@@ -447,7 +479,7 @@
           continue;
         }
         if (childIndent && tight(i, 22)) {
-          if (parent.children.length && lower && !prevEnded && parent.childX != null && Math.abs(x - parent.childX) <= 8 && wrapped(i - 1)) {
+          if (!marked && parent.children.length && lower && !prevEnded && parent.childX != null && Math.abs(x - parent.childX) <= 8 && wrapped(i - 1)) {
             parent.children[parent.children.length - 1] += ' ' + text;
           } else if (!marked || x >= parent.contentX + 14) {
             parent.children.push(text);
@@ -800,9 +832,17 @@
   function clauseItems(lines) {
     const parts = [];
     const group = lines || [];
+    const rights = group.map(lineRight).filter(function (r) { return r != null; });
+    const maxRight = rights.length ? Math.max.apply(null, rights) : null;
+    const left = group.length ? Math.min.apply(null, group.map(function (l) { return l.x || 0; })) : 0;
     group.forEach(function (line, i) {
-      const text = String(line.text || '').trim();
+      const text = line.vbullet ? stripBullet(line.text || '') : String(line.text || '').trim();
       if (!text) return;
+      if (line.vbullet) { parts.push(text); return; }
+      /* A line starting with a figure after a short (unwrapped) line is its own point. */
+      const prevRight = i > 0 ? lineRight(group[i - 1]) : null;
+      if (parts.length && /^\d/.test(text) && prevRight != null && maxRight != null
+          && (prevRight - left) < 0.8 * (maxRight - left)) { parts.push(text); return; }
       if (parts.length && clauseContinues(group[i - 1], line)) parts[parts.length - 1] += ' ' + text;
       else parts.push(text);
     });
@@ -877,7 +917,7 @@
       return current;
     }
     lines.forEach(function (line) {
-      const text = line.text.trim();
+      const text = line.vbullet ? stripBullet(line.text) : line.text.trim();
       if (!text) return;
       if (isLabCode(text)) {
         ensure(text);
@@ -909,7 +949,7 @@
     let cur = null;
     items.forEach(function (it) {
       const str = it.str || '';
-      if (!String(str).trim()) return;
+      if (!String(str).trim() || it.vector) return;
       if (!cur) {
         cur = { x: it.x, items: [it] };
         cells.push(cur);
@@ -924,6 +964,41 @@
     });
     cells.forEach(function (c) { c.text = joinParts(c.items); });
     return cells.filter(function (c) { return c.text; });
+  }
+
+  /* Mixed-case header ("Motor  Description  kW  FLC  Qty ...") counts when the next row
+     is clearly data in the same columns (several cells, at least two numeric). */
+  function looksLikeMixedHeader(cells, nextCells) {
+    if (!cells || cells.length < 4 || !nextCells || nextCells.length < cells.length - 1) return false;
+    const texts = cells.map(function (c) { return cleanJoin(c.text); });
+    if (texts.join(' ').length > 90) return false;
+    for (let i = 0; i < texts.length; i++) {
+      const t = texts[i];
+      if (!t || t.length > 18 || wordCount(t) > 2 || /\d{2,}/.test(t)) return false;
+      if (!/^[A-Za-z]/.test(t)) return false;
+    }
+    const numeric = nextCells.filter(function (c) { return /^[\d.,]+$/.test(cleanJoin(c.text)); }).length;
+    if (numeric < 2) return false;
+    let aligned = 0;
+    const anchors = cells.map(function (c) { return c.x; });
+    nextCells.forEach(function (c) {
+      const right = c.x + (c.items || []).reduce(function (w, it) { return Math.max(w, it.x + (it.w || 0) - c.x); }, 0);
+      const hitL = nearestCol(c.x, anchors).dist <= 22;
+      const hitR = cells.some(function (h) {
+        const hr = h.x + (h.items || []).reduce(function (w, it) { return Math.max(w, it.x + (it.w || 0) - h.x); }, 0);
+        return Math.abs(hr - right) <= 14 || (c.x >= h.x - 14 && right <= hr + 30 && c.x <= hr);
+      });
+      if (hitL || hitR) aligned += 1;
+    });
+    return aligned >= Math.ceil(nextCells.length * 0.75);
+  }
+
+  function nextNonEmpty(lines, start) {
+    for (let j = start + 1; j < lines.length && j < start + 4; j++) {
+      const cells = lineCells(lines[j]);
+      if (cells.length) return cells;
+    }
+    return null;
   }
 
   function looksLikeHeader(cells) {
@@ -984,7 +1059,7 @@
 
   function readTable(lines, start) {
     const headerCells = lineCells(lines[start]);
-    if (!looksLikeHeader(headerCells)) return null;
+    if (!looksLikeHeader(headerCells) && !looksLikeMixedHeader(headerCells, nextNonEmpty(lines, start))) return null;
     const anchors = headerCells.map(function (c) { return c.x; });
     const header = headerCells.map(function (c) { return c.text; });
     const rows = [];
@@ -994,6 +1069,8 @@
       const blob = cleanJoin(cells.map(function (c) { return c.text; }).join(' '));
       if (!blob) continue;
       if (looksLikeHeader(cells) && rows.length) break;
+      /* A "label: value" statement under a table (e.g. Installed Power ...: 13 (kW)) is prose. */
+      if (cells.length === 1 && rows.length && /[A-Za-z].*:\s*\d/.test(blob) && wordCount(blob) >= 4) break;
       if (!rowLooksTabular(cells, anchors)) break;
       if (cells.length === 1 && rows.length && !isSummaryText(blob) && !/^[A-Z][A-Z0-9 /-]{2,}$/.test(blob)) {
         const hit = nearestCol(cells[0].x, anchors);
@@ -1114,6 +1191,21 @@
     return s;
   }
 
+  function footerTitle(pages) {
+    const counts = {};
+    pages.forEach(function (p) {
+      const height = p.height || 842;
+      const foot = (p.items || []).filter(function (it) { return it.base >= height - 48; });
+      clusterLines(foot.map(function (it) { return Object.assign({ pageNumber: p.pageNumber }, it); })).forEach(function (line) {
+        const t = cleanJoin(line.text.replace(/page\s+\d+\s+of\s+\d+/i, ''));
+        if (t.length >= 8) counts[t] = (counts[t] || 0) + 1;
+      });
+    });
+    let best = '';
+    Object.keys(counts).forEach(function (t) { if (!best || counts[t] > counts[best]) best = t; });
+    return best && counts[best] >= 2 ? best : '';
+  }
+
   function parseDocument(pages) {
     const notes = [];
     const prepared = (pages || []).map(function (p) { return prepare(p, notes); }).filter(Boolean);
@@ -1213,6 +1305,18 @@
       if (s.kind === 'extra') flow.push('extra:' + s.title);
     });
 
+    /* The running footer often prints the same title in its proper case
+       ("STP-Container 30 klpd" vs the all-caps heading). Same words, better case. */
+    const footTitle = footerTitle(pages || []);
+    if (footTitle && letter.docTitle && footTitle !== letter.docTitle
+        && cleanJoin(footTitle).toLowerCase() === cleanJoin(letter.docTitle).toLowerCase()) {
+      const fp = splitTitle(footTitle);
+      letter.docTitle = footTitle;
+      letter.eyebrow = fp.eyebrow;
+      letter.mainTitle = fp.main;
+      letter.titleTail = fp.tail;
+    }
+
     const scheduleRows = schedule ? schedule.groups.reduce(function (n, g) { return n + g.rows.length; }, 0) : 0;
     return {
       bee: bee,
@@ -1247,5 +1351,5 @@
   }
 
   window.HWTParse = { parseDocument: parseDocument, splitTitle: splitTitle,
-    _test: { buildBlocks: buildBlocks, splitLong: splitLong, tidyItem: tidyItem, stripBullet: stripBullet, clauseItems: clauseItems, segmentLines: segmentLines } };
+    _test: { buildBlocks: buildBlocks, splitLong: splitLong, tidyItem: tidyItem, stripBullet: stripBullet, clauseItems: clauseItems, segmentLines: segmentLines, attachVectorBullets: attachVectorBullets, isBudgetHeading: isBudgetHeading } };
 })();
