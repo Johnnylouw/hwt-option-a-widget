@@ -57,7 +57,7 @@
       if (model.titleTail) band.appendChild(el('div', 'tail', model.titleTail));
       if (model.proposalType) band.appendChild(el('div', 'ptype', model.proposalType));
       if (band.childNodes.length) head.appendChild(band);
-      if (model.to || model.from || model.email || model.date) {
+      if (!opts.hero && (model.to || model.from || model.email || model.date)) {
         var meta = el('div', 'meta');
         function row(label, value, field) {
           if (!value) return;
@@ -150,6 +150,191 @@
     var ul = el('ul', 'clean');
     (block.items || []).forEach(function (item) { ul.appendChild(liEl(item)); });
     return ul;
+  }
+
+  var SMALL_WORDS = /^(a|an|and|as|at|by|for|in|of|on|or|the|to|with|per|via)$/i;
+  /* ALL-CAPS headings read as Title Case; acronyms of 2-3 letters (STP, DWS, PLC) stay upper. */
+  function titleCase(text) {
+    var t = String(text || '').trim();
+    var letters = t.replace(/[^A-Za-z]/g, '');
+    if (!letters || letters !== letters.toUpperCase()) return t;
+    return t.split(/(\s+)/).map(function (w, i) {
+      if (/^\s+$/.test(w)) return w;
+      var bare = w.replace(/[^A-Za-z]/g, '');
+      if (i > 0 && SMALL_WORDS.test(bare)) return w.toLowerCase();
+      if (bare.length <= 3 && !SMALL_WORDS.test(bare) && !/^(ALL|ONE|TWO|NEW|USE|NOT|OUR|BUT|ARE|ITS|HAS|WAS|OFF|OUT|BIG)$/.test(bare)) return w;
+      return w.charAt(0).toUpperCase() + w.slice(1).toLowerCase();
+    }).join('');
+  }
+
+  /* A process list with sub-points reads as numbered steps (Option A reference layout). */
+  function stepsEl(block) {
+    var ol = el('ol', 'steps');
+    (block.items || []).forEach(function (item, i) {
+      var li = el('li');
+      li.appendChild(el('span', 'step-n', String(i + 1)));
+      var body = el('div', 'step-b');
+      body.appendChild(el('div', 'step-t', item.text));
+      if (item.children && item.children.length) {
+        var ul = el('ul', 'step-sub');
+        item.children.forEach(function (c) { ul.appendChild(el('li', '', c)); });
+        body.appendChild(ul);
+      }
+      li.appendChild(body);
+      ol.appendChild(li);
+    });
+    return ol;
+  }
+
+  function isSteps(block) {
+    return block.type === 'ul' && (block.items || []).length >= 2
+      && (block.items || []).some(function (it) { return it.children && it.children.length; });
+  }
+
+  function heroFigure(model) {
+    var best = null;
+    var bestScore = -1;
+    (model.media || []).forEach(function (fig, i) {
+      var cap = fig.caption || '';
+      if (/flow\s*chart|diagram|schematic|layout|monitor|screen|graph|chart|drawing|p&id/i.test(cap)) return;
+      var ratio = fig.w && fig.h ? fig.w / fig.h : 1.4;
+      if (ratio < 0.9 || ratio > 2.6) return;
+      var score = (cap.match(/plant|container|treatment|render|3d|installation|works|system|unit/gi) || []).length;
+      if (score > bestScore) { best = fig; bestScore = score; }
+    });
+    return best;
+  }
+
+  function findText(model, re) {
+    var texts = [];
+    (model.body || []).forEach(function (b) {
+      if (b.type === 'p') texts.push(b.text);
+      (b.items || []).forEach(function (it) { texts.push(it.text); (it.children || []).forEach(function (c) { texts.push(c); }); });
+    });
+    for (var i = 0; i < texts.length; i++) {
+      var m = String(texts[i]).match(re);
+      if (m) return m;
+    }
+    return null;
+  }
+
+  /* Key facts are short phrases copied as printed; a tile only appears when its phrase is found. */
+  function keyFacts(model) {
+    var facts = [];
+    var flow = findText(model, /design\s+(?:flow|capacity)\s*(?:is|of|:|=)?\s*([\d.,]+\s*(?:m³\/d(?:ay)?|m3\/d(?:ay)?|kl\/d(?:ay)?|klpd|kl|m³|l\/d(?:ay)?|MLD))/i);
+    if (flow) facts.push({ value: flow[1].trim(), label: 'Design flow' });
+    var limit = findText(model, /compliant\s+with\s+(?:the\s+)?([A-Z][A-Za-z0-9 :\-]{2,40}?(?:Limits?|Standards?|Guidelines?|SANS\s*[\d:\-]+))\b/);
+    if (limit) facts.push({ value: limit[1].trim(), label: 'Water quality' });
+    (model.terms || []).some(function (t) {
+      if (!/deliver|completion|lead\s*time/i.test(t.label || '')) return false;
+      var txt = t.value || (t.items || []).join(' ');
+      var m = txt.match(/(\d+\s*(?:-\s*\d+\s*)?(?:weeks?|days?|months?))/i);
+      if (!m) return false;
+      var label = /factory completion period/i.test(txt) ? 'Factory completion period' : titleCase(t.label);
+      facts.push({ value: m[1], label: label });
+      return true;
+    });
+    return facts;
+  }
+
+  function coverHeroNodes(model, hero) {
+    var nodes = [];
+    var fig = el('figure', 'hero');
+    var img = el('img');
+    img.src = hero.dataUrl;
+    img.alt = '';
+    sizeImg(img, hero, 660, 400);
+    fig.appendChild(img);
+    nodes.push(fig);
+    var tiles = el('div', 'tiles');
+    function tile(label, value, sub, field) {
+      if (!value) return;
+      var t = el('div', 'tile');
+      t.appendChild(el('div', 'tl', label));
+      var v = el('div', 'tv', value);
+      if (field) v.dataset.field = field;
+      t.appendChild(v);
+      if (sub) t.appendChild(el('div', 'ts', sub));
+      tiles.appendChild(t);
+    }
+    tile('To', model.to, model.email, 'to');
+    tile('From', model.from, '', 'from');
+    tile('Date', model.date, '', 'date');
+    if (model.quotation && model.quotation.amount) tile(model.quotation.label || 'Quotation (excluding VAT)', model.quotation.amount, '', 'quote');
+    if (tiles.childNodes.length) nodes.push(tiles);
+    var facts = keyFacts(model);
+    if (facts.length) {
+      var row = el('div', 'facts');
+      facts.forEach(function (f, i) {
+        var box = el('div', 'fact f' + (i % 4));
+        box.appendChild(el('div', 'fv', f.value));
+        box.appendChild(el('div', 'fl', f.label));
+        row.appendChild(box);
+      });
+      nodes.push(row);
+    }
+    return nodes;
+  }
+
+  /* Letter page after a hero cover: numbered Proposal and Budget sections. */
+  function letterNodes(model, counter) {
+    var nodes = [];
+    if (model.salutation) {
+      var sal = el('p', 'salute', model.salutation);
+      sal.dataset.field = 'salutation';
+      nodes.push(sal);
+    }
+    model.intro.forEach(function (text) { nodes.push(el('p', 'lede', text)); });
+    if (model.body.length) {
+      var head = flowHeading('Proposal', counter.next(), titleCase(model.proposalType || 'Proposal'));
+      nodes.push(head);
+      model.body.forEach(function (block, i) {
+        var nextIsList = model.body[i + 1] && model.body[i + 1].type === 'ul';
+        var node = isSteps(block) ? stepsEl(block) : blockEl(block, 'body-p');
+        if (block.type === 'p' && nextIsList && /:$/.test(block.text.trim())) {
+          node.className = 'body-p lead-in';
+          node._keep = true;
+        }
+        nodes.push(node);
+      });
+    }
+    var budgetBlocks = model.budgetBody || [];
+    var notes = model.budgetNotes || [];
+    var hasBudget = !!(model.budgetHeading || (model.quotation && model.quotation.amount) || budgetBlocks.length || notes.length);
+    if (hasBudget) {
+      nodes.push(flowHeading('Price', counter.next(), titleCase(model.budgetHeading || 'Budget Proposal')));
+      var budget = el('div', 'budget open');
+      var left = el('div', 'budget-main');
+      if (budgetBlocks.length) {
+        budgetBlocks.forEach(function (block) {
+          if (block.type === 'ul') {
+            var ol = el('ol', 'nums');
+            block.items.forEach(function (item) { ol.appendChild(liEl(item)); });
+            left.appendChild(ol);
+          } else left.appendChild(el('p', 'note', block.text));
+        });
+      } else {
+        notes.forEach(function (text) { left.appendChild(el('p', 'note', text)); });
+      }
+      if (left.childNodes.length) budget.appendChild(left);
+      else budget.classList.add('solo');
+      if (model.quotation && model.quotation.amount) budget.appendChild(quoteCard(model));
+      budget._withPrev = true;
+      nodes.push(budget);
+    }
+    return nodes;
+  }
+
+  function sizeImg(img, fig, maxW, maxH) {
+    var w = fig.w || 4;
+    var h = fig.h || 3;
+    var dh = Math.min(maxH, maxW * h / w);
+    var dw = dh * w / h;
+    img.style.width = Math.round(dw) + 'px';
+    img.style.height = Math.round(dh) + 'px';
+    img.style.maxWidth = 'none';
+    img.style.maxHeight = 'none';
+    img.style.objectFit = 'contain';
   }
 
   function coverNodes(model) {
@@ -356,6 +541,7 @@
     function addSheet(continued) {
       var sheet = makeSheet(model, {
         cover: !!opts.cover && !continued,
+        hero: !!opts.hero,
         kicker: opts.kicker,
         number: opts.number,
         title: opts.title,
@@ -406,6 +592,9 @@
       var img = el('img');
       img.src = fig.dataUrl;
       img.alt = '';
+      /* Fixed box from the cropped figure's aspect ratio, so pagination measures real heights
+         before the image has decoded (otherwise later figures overflow and get clipped). */
+      sizeImg(img, fig, 676, 300);
       card.appendChild(img);
       if (fig.caption) {
         var cap = el('figcaption', 'cap');
@@ -508,9 +697,12 @@
   function extraNodes(extra) {
     if (extra.blocks && extra.blocks.length) {
       var nodes = [];
-      extra.blocks.forEach(function (b) {
+      extra.blocks.forEach(function (b, i) {
         if (b.type === 'table') nodes.push.apply(nodes, tableRowNodes(b));
-        else nodes.push(el('p', 'extra-p', b.text));
+        else if (i > 0 && extra.blocks[i - 1].type === 'table' && /[A-Za-z].*:\s*\d/.test(b.text)) {
+          /* "Installed Power (...): 13 (kW)" under a table reads as a highlighted total. */
+          nodes.push(el('p', 'extra-p callout', b.text));
+        } else nodes.push(el('p', 'extra-p', b.text));
       });
       return nodes;
     }
@@ -593,9 +785,15 @@
   async function renderDocument(model, mount) {
     mount.textContent = '';
     var sheets = [];
-    var cover = paginate(mount, model, { cover: true }, coverNodes(model));
-    sheets.push.apply(sheets, cover);
     var sectionIndex = 1;
+    var hero = heroFigure(model);
+    if (hero) {
+      sheets.push.apply(sheets, paginate(mount, model, { cover: true, hero: true }, coverHeroNodes(model, hero)));
+      var counter = { next: function () { var n = String(sectionIndex).padStart(2, '0'); sectionIndex += 1; return n; } };
+      sheets.push.apply(sheets, paginate(mount, model, {}, letterNodes(model, counter)));
+    } else {
+      sheets.push.apply(sheets, paginate(mount, model, { cover: true }, coverNodes(model)));
+    }
     var extras = model.extras.slice();
     var extraBuf = [];
     function takeExtra(token) {
@@ -603,7 +801,7 @@
       var extra = extras.shift() || { title: title, paragraphs: [] };
       var number = String(sectionIndex).padStart(2, '0');
       sectionIndex += 1;
-      return { title: extra.title || title, number: number, nodes: extraNodes(extra) };
+      return { title: titleCase(extra.title || title), number: number, nodes: extraNodes(extra) };
     }
     function paginateExtra(entry) {
       if (!entry.nodes.length) return;
