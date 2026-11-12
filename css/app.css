@@ -244,14 +244,14 @@ button:focus-visible, .drop:focus-visible {
   color: var(--navy-ink);
   position: relative;
   overflow: hidden;
-  padding: 36px 46px 74px;
+  padding: 36px 54px 84px;
   box-shadow: 0 12px 40px rgba(42, 63, 95, 0.12);
 }
 
 .sheet-foot {
   position: absolute;
-  left: 46px;
-  right: 46px;
+  left: 54px;
+  right: 54px;
   bottom: 22px;
   border-top: 1px solid #e0d3c2;
   padding-top: 6px;
@@ -566,7 +566,7 @@ table.data-table.dense th, table.data-table.dense td { padding: 3px 4px; }
   border-radius: 6px;
   padding: 10px 12px 8px;
   background: #fffdf8;
-  margin: 0 0 12px;
+  margin: 0;
 }
 .media-card img {
   display: block;
@@ -638,7 +638,7 @@ pre.raw {
 }
 
 /* ---- Hero cover, letter sections, numbered steps (Option A reference layout) ---- */
-.hero { margin: 18px 0 14px; text-align: center; }
+.hero { margin: 0; text-align: center; }
 .hero img { display: block; margin: 0 auto; background: transparent; border-radius: 4px; }
 .tiles { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-top: 6px; }
 .tile { background: var(--cream-deep); border-top: 3px solid var(--sand); border-radius: 2px; padding: 8px 10px 9px; min-width: 0; }
@@ -678,3 +678,30 @@ table.schedule tr.grand td { padding: 6px 6px; }
 ol.nums ul { list-style: none; margin: 1px 0 2px; padding-left: 4px; }
 ol.nums ul li { position: relative; padding-left: 14px; margin: 1px 0; }
 ol.nums ul li::before { content: "\203A"; position: absolute; left: 3px; top: -1px; color: var(--sand-ink); font-weight: 700; }
+
+/* ---- Spacing rules (Option A): clear gap around every figure / table / caption ---- */
+.lc-block { padding: 26px 0; break-inside: avoid; page-break-inside: avoid; }
+.lc-block + .lc-block { padding-top: 0; }
+.flow > .lc-block:first-child { padding-top: 4px; }
+.flow > .lc-block:last-child { padding-bottom: 0; }
+.flow-sec + .lc-block, .schedule-intro + .lc-block { padding-top: 8px; }
+.lc-block figure, .lc-block table { margin: 0; }
+.lc-block.hero-wrap { padding: 18px 0 20px; }
+figure, .media-card, .mr-fig, table, .term, .tile, .fact, .quote-card, .mr-sign, ol.steps > li { break-inside: avoid; page-break-inside: avoid; }
+figcaption, .cap { break-before: avoid; page-break-before: avoid; }
+.sheet.lc-tight .lc-block { padding: 14px 0; }
+.sheet.lc-tight .lc-block + .lc-block { padding-top: 0; }
+.sheet.lc-tight .flow p { margin-bottom: 5px; }
+.sheet.lc-tight .mr-sec { margin-top: 8px; padding-top: 5px; }
+.sheet.lc-tight .mr-sign { margin-top: 6px; }
+/* Second pass after a failed layout check: roomier gaps built into pagination. */
+.lc-strict .lc-block { padding: 30px 0; }
+.lc-strict .lc-block + .lc-block { padding-top: 0; }
+.lc-strict .flow > .lc-block:first-child { padding-top: 6px; }
+.lc-strict .flow > .lc-block:last-child { padding-bottom: 0; }
+.lc-strict .flow-sec + .lc-block, .lc-strict .schedule-intro + .lc-block { padding-top: 10px; }
+.lead-in + .lc-block { padding-top: 6px; }
+.lc-strict .lead-in + .lc-block { padding-top: 8px; }
+.lc-block ol.steps { margin: 0; }
+.mr-sec + .lc-block, .mr-sub + .lc-block { padding-top: 8px; }
+.lc-strict .mr-sec + .lc-block, .lc-strict .mr-sub + .lc-block { padding-top: 10px; }

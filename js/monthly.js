@@ -730,7 +730,21 @@
           n.appendChild(el('div', 'mr-sign-l', p.label));
           p.lines.forEach(function (t, i) { n.appendChild(el('div', i ? 'mr-sign-x' : 'mr-sign-n', t)); });
         }
-        if (n) nodes.push(n);
+        if (!n) return;
+        /* Captions/table titles travel inside the padded wrapper with their table or figure. */
+        if (p.type === 'table' || p.type === 'image') {
+          var w = el('div', 'lc-block ' + (p.type === 'table' ? 'tbl-wrap' : 'fig-wrap'));
+          var prev = nodes[nodes.length - 1];
+          if (prev && prev._keep && (prev.classList.contains('mr-cap') || prev.classList.contains('mr-ttl'))) {
+            nodes.pop();
+            prev._keep = false;
+            w.appendChild(prev);
+          }
+          w.appendChild(n);
+          n = w;
+        }
+        if (p.type === 'signoff') n._sign = true;
+        nodes.push(n);
       });
     });
     return nodes;
@@ -748,15 +762,22 @@
   function over(flow) { return flow.scrollHeight > flow.clientHeight + 2; }
 
   function splitTail(node, flow) {
-    // move rows/items from node into a continuation clone until it fits
+    // move rows/items from node into a continuation clone until it fits;
+    // at least 3 rows stay and at least 3 move (no orphans or widows)
     var isTable = node.querySelector && node.querySelector('tbody');
     var list = isTable ? node.querySelector('tbody') : (node.tagName === 'UL' ? node : null);
     if (!list) return null;
     var clone = node.cloneNode(true);
     var cl = isTable ? clone.querySelector('tbody') : clone;
     cl.textContent = '';
-    while (over(flow) && list.children.length > 2) cl.insertBefore(list.lastElementChild, cl.firstChild);
-    if (over(flow) || !cl.children.length) return null;
+    var cap = isTable ? clone.querySelector('.mr-cap, .mr-ttl') : null;
+    if (cap) cap.remove();
+    while (over(flow) && list.children.length > 3) cl.insertBefore(list.lastElementChild, cl.firstChild);
+    while (cl.children.length && cl.children.length < 3 && list.children.length > 3) cl.insertBefore(list.lastElementChild, cl.firstChild);
+    if (over(flow) || !cl.children.length || cl.children.length < 3 && list.children.length + cl.children.length >= 6) {
+      while (cl.children.length) list.appendChild(cl.firstElementChild);
+      return null;
+    }
     return clone;
   }
 
@@ -777,11 +798,24 @@
     for (var i = 0; i < nodes.length; i++) {
       var n = nodes[i];
       flow.appendChild(n);
-      if (n.tagName === 'FIGURE') {
-        var img = n.querySelector('img');
-        if (!img.complete) await new Promise(function (r) { img.onload = img.onerror = r; });
-      }
+      var img = n.querySelector && n.querySelector('figure img');
+      if (img && !img.complete) await new Promise(function (r) { img.onload = img.onerror = r; });
       if (!over(flow)) continue;
+      if (n._sign) {
+        /* Sign-off stays on the last section's page: tighten spacing on this page first. */
+        flow.closest('.sheet').classList.add('lc-tight');
+        if (!over(flow)) continue;
+        flow.closest('.sheet').classList.remove('lc-tight');
+        // otherwise take the previous block along so the sign-off never sits alone
+        flow.removeChild(n);
+        var mates = [];
+        if (flow.lastElementChild && flow.children.length > 1) mates.unshift(flow.removeChild(flow.lastElementChild));
+        while (flow.lastElementChild && flow.lastElementChild._keep) mates.unshift(flow.removeChild(flow.lastElementChild));
+        flow = add(false);
+        mates.forEach(function (c) { flow.appendChild(c); });
+        flow.appendChild(n);
+        continue;
+      }
       var rest = splitTail(n, flow);
       var carry = [];
       if (!rest) {
