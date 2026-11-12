@@ -10,6 +10,14 @@
     return node;
   }
 
+  /* Figures and tables sit inside a padded wrapper (.lc-block) so the gap to body text survives
+     margin collapsing and flush-cropped images never touch the text. */
+  function wrapBlock(kind, child) {
+    var w = el('div', 'lc-block ' + kind);
+    if (child) w.appendChild(child);
+    return w;
+  }
+
   function footer() {
     var foot = el('footer', 'sheet-foot');
     var co = el('div', 'foot-co');
@@ -243,9 +251,9 @@
     var img = el('img');
     img.src = hero.dataUrl;
     img.alt = '';
-    sizeImg(img, hero, 660, 400);
+    sizeImg(img, hero, 640, 380);
     fig.appendChild(img);
-    nodes.push(fig);
+    nodes.push(wrapBlock('fig-wrap hero-wrap', fig));
     var tiles = el('div', 'tiles');
     function tile(label, value, sub, field) {
       if (!value) return;
@@ -290,7 +298,7 @@
       nodes.push(head);
       model.body.forEach(function (block, i) {
         var nextIsList = model.body[i + 1] && model.body[i + 1].type === 'ul';
-        var node = isSteps(block) ? stepsEl(block) : blockEl(block, 'body-p');
+        var node = isSteps(block) ? wrapBlock('steps-wrap', stepsEl(block)) : blockEl(block, 'body-p');
         if (block.type === 'p' && nextIsList && /:$/.test(block.text.trim())) {
           node.className = 'body-p lead-in';
           node._keep = true;
@@ -499,7 +507,7 @@
         var parsed = [];
         try { parsed = JSON.parse(header); } catch (err) { parsed = []; }
         table = dataTable(parsed, node.dataset.nums || '');
-        flow.appendChild(table);
+        flow.appendChild(wrapBlock('tbl-wrap', table));
       }
       table.querySelector('tbody').appendChild(node);
       return;
@@ -508,7 +516,7 @@
       var schedule = flow.querySelector('table.schedule');
       if (!schedule) {
         schedule = scheduleTable();
-        flow.appendChild(schedule);
+        flow.appendChild(wrapBlock('tbl-wrap', schedule));
       }
       schedule.querySelector('tbody').appendChild(node);
       ensureCat(node);
@@ -523,7 +531,9 @@
 
   function dropEmptyTable(flow) {
     flow.querySelectorAll('table.schedule, table.data-table').forEach(function (table) {
-      if (!table.querySelector('tbody tr')) table.remove();
+      if (table.querySelector('tbody tr')) return;
+      var w = table.parentElement;
+      if (w && w.classList.contains('tbl-wrap')) w.remove(); else table.remove();
     });
   }
 
@@ -557,11 +567,49 @@
     if (!nodes.length) return sheets;
     var sheet = addSheet(false);
     var flow = sheet.querySelector('.flow');
-    nodes.forEach(function (node) {
+    function isRow(n) { return n && n.tagName === 'TR'; }
+    function isDataRow(n) {
+      return isRow(n) && (n.classList.contains('data') || (n.dataset.table === 'data' && !n.classList.contains('sum')));
+    }
+    function sameTable(a, b) {
+      return (a.dataset.table || '') === (b.dataset.table || '') && (a.dataset.header || '') === (b.dataset.header || '');
+    }
+    nodes.forEach(function (node, idx) {
       placeNode(flow, node);
       if (!overflows(flow)) return;
       detachNode(node);
-      var carry = detachKeep(flow);
+      /* Table splits: never leave 1-2 rows at the foot of a page (orphan) or carry fewer
+         than 3 rows onto the next page (widow). */
+      var rows = [];
+      if (isRow(node)) {
+        var wrap = flow.lastElementChild;
+        var tb = wrap && wrap.classList && wrap.classList.contains('tbl-wrap') ? wrap.querySelector('tbody') : null;
+        if (tb) {
+          var here = tb.children.length;
+          /* Count real line items (not sub-total / total rows) going to the next page. */
+          var ahead = isDataRow(node) ? 1 : 0;
+          for (var k = idx + 1; k < nodes.length && isRow(nodes[k]) && nodes[k].dataset.restart !== '1' && sameTable(nodes[k], node); k++) {
+            if (isDataRow(nodes[k])) ahead += 1;
+          }
+          if (here < 3) rows = [].slice.call(tb.children);
+          else if (ahead < 2) {
+            var kids = [].slice.call(tb.children);
+            var need = 2 - ahead;
+            while (need > 0 && kids.length > 3) {
+              var last = kids.pop();
+              rows.unshift(last);
+              if (isDataRow(last)) need -= 1;
+            }
+          }
+          rows.forEach(detachNode);
+          if (rows.length) {
+            var td0 = rows[0].querySelector('td.cat');
+            if (td0 && rows[0].classList.contains('data')) { td0.textContent = ''; td0.dataset.filled = ''; }
+          }
+        }
+      }
+      dropEmptyTable(flow);
+      var carry = detachKeep(flow).concat(rows);
       if (node._withPrev && flow.lastElementChild) {
         var prev = flow.lastElementChild;
         if (prev.offsetHeight && prev.offsetHeight < flow.clientHeight * 0.7) {
@@ -574,10 +622,15 @@
         placeNode(flow, node);
         return;
       }
+      if (!flow.children.length && carry.length) {
+        /* Moving everything would leave an empty page: keep what was here, move only this node. */
+        carry.forEach(function (c) { placeNode(flow, c); });
+        carry = [];
+      }
       sheet = addSheet(true);
       flow = sheet.querySelector('.flow');
       carry.forEach(function (c) { placeNode(flow, c); });
-      if (node.tagName === 'TR' && node.classList.contains('data')) {
+      if (node.tagName === 'TR' && node.classList.contains('data') && !rows.length) {
         var td = node.querySelector('td.cat');
         if (td) { td.textContent = ''; td.dataset.filled = ''; }
       }
@@ -594,7 +647,7 @@
       img.alt = '';
       /* Fixed box from the cropped figure's aspect ratio, so pagination measures real heights
          before the image has decoded (otherwise later figures overflow and get clipped). */
-      sizeImg(img, fig, 676, 300);
+      sizeImg(img, fig, 656, 290);
       card.appendChild(img);
       if (fig.caption) {
         var cap = el('figcaption', 'cap');
@@ -602,7 +655,7 @@
         cap.appendChild(document.createTextNode(fig.caption));
         card.appendChild(cap);
       }
-      return card;
+      return wrapBlock('fig-wrap', card);
     });
   }
 
@@ -736,7 +789,7 @@
     if (!ok) {
       for (var i = kids.length - 1; i > start; i--) {
         var node = kids[i];
-        if (node.tagName === 'TABLE') {
+        if (node.tagName === 'TABLE' || (node.classList && node.classList.contains('tbl-wrap'))) {
           [].slice.call(node.querySelectorAll('tbody tr')).forEach(function (tr) { detachNode(tr); });
         }
         detachNode(node);

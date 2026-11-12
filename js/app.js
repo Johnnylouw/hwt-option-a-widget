@@ -466,6 +466,55 @@
     return typeof structuredClone === 'function' ? structuredClone(m) : JSON.parse(JSON.stringify(m));
   }
 
+  /* Render, then run the post-layout check. Tight gaps are nudged in place; if that (or anything
+     else) leaves a page clipped, lay the document out again with roomier spacing built in. */
+  async function laidOut(m, mount, renderFn) {
+    mount.classList.remove('lc-strict');
+    var sheets = await renderFn(m, mount);
+    var check = window.HWTLayoutCheck;
+    if (!check) return sheets;
+    var res = check.audit(sheets, true);
+    if (res.overflow || res.issues.length) {
+      mount.classList.add('lc-strict');
+      var again = await renderFn(m, mount);
+      var res2 = check.audit(again, true);
+      if (res2.issues.length <= res.issues.length) { sheets = again; res = res2; }
+      else {
+        mount.classList.remove('lc-strict');
+        sheets = await renderFn(m, mount);
+        res = check.audit(sheets, true);
+      }
+    }
+    mount._layout = res;
+    window.__lastLayout = res;
+    return sheets;
+  }
+
+  function showLayout(job) {
+    var notes = job.querySelector('.notes');
+    var mount = job.querySelector('.sheets');
+    var res = mount && mount._layout;
+    if (!notes || !res) return;
+    var old = notes.querySelector('.lc-note');
+    if (old) old.remove();
+    var li = document.createElement('li');
+    li.className = 'lc-note' + (res.issues.length ? ' warn' : '');
+    if (!res.issues.length) {
+      li.textContent = 'Layout check: ' + res.pages + ' pages, clear gaps around every figure and table, nothing clipped or overlapping.';
+    } else {
+      var seen = {};
+      var parts = [];
+      res.issues.forEach(function (x) {
+        var k = x.page + x.type;
+        if (seen[k]) return;
+        seen[k] = 1;
+        parts.push('page ' + x.page + ': ' + x.detail);
+      });
+      li.textContent = 'Layout check: ' + parts.slice(0, 6).join('; ') + (parts.length > 6 ? '; …' : '') + '.';
+    }
+    notes.appendChild(li);
+  }
+
   /* Review step: list suggested text fixes with checkboxes; only ticked ones are applied. */
   async function setupReview(job, file, button, rawModel, cleanFn, renderFn) {
     var mount = job.querySelector('.sheets');
@@ -483,7 +532,8 @@
       job._model = m;
       window.__lastModel = m;
       m.fixes = suggestions.map(function (f) { return { from: f.from, to: f.to, rule: f.rule, section: f.section, key: f.key, applied: ticked.has(f.key) }; });
-      job._sheets = await renderFn(m, mount);
+      job._sheets = await laidOut(m, mount, renderFn);
+      showLayout(job);
       fitFrames();
     }
     function doExport(btn) { return exportPdf(job._sheets, downloadName(file), btn); }
